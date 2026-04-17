@@ -12,7 +12,7 @@ PANE_ID=${3:-%0}
 
 TMUX_SESSION_ID=$(tmux display-message -p '#{session_id}')
 STATE_DIR="/tmp/turn-nav-${TMUX_SESSION_ID}"
-P="${TURN_NAV_PATTERN:-^❯}"
+P="${TURN_NAV_PATTERN:-^[❯›]}"
 
 # --- bottom: 退出浏览 ---
 if [[ "$DIRECTION" == "bottom" ]]; then
