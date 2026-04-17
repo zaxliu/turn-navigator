@@ -1,0 +1,9 @@
+{
+  "name": "turn-navigator",
+  "description": "Navigate between conversation turns in tmux with keyboard shortcuts (Ctrl+Up/Down, Alt+Up/Down for 5-turn jump, Ctrl+G to bottom).",
+  "version": "1.0.0",
+  "author": {
+    "name": "Lewis"
+  },
+  "keywords": ["navigation", "turns", "tmux"]
+}
