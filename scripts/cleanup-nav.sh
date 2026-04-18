@@ -36,11 +36,4 @@ if [[ -f "$STATE_DIR/original-status-interval" ]]; then
   tmux set-option -g status-interval "$(cat "$STATE_DIR/original-status-interval")"
 fi
 
-# Preserve baseline for resume, clean up everything else
-BASELINE_BAK=""
-[[ -f "$STATE_DIR/baseline" ]] && BASELINE_BAK=$(cat "$STATE_DIR/baseline")
 rm -rf "$STATE_DIR"
-if [[ -n "$BASELINE_BAK" ]]; then
-  mkdir -p "$STATE_DIR"
-  echo "$BASELINE_BAK" > "$STATE_DIR/baseline"
-fi
