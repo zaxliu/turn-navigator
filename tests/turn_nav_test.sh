@@ -13,6 +13,15 @@ assert_eq() {
   fi
 }
 
+assert_file_contains() {
+  local path=$1
+  local needle=$2
+  if ! grep -Fq "$needle" "$path"; then
+    printf 'ASSERTION FAILED: expected [%s] in %s\n' "$needle" "$path" >&2
+    exit 1
+  fi
+}
+
 setup_case() {
   export TEST_TMPDIR
   TEST_TMPDIR=$(mktemp -d)
@@ -24,6 +33,22 @@ setup_case() {
   export TMUX_BIN="$TEST_TMPDIR/bin/tmux"
   source "$ROOT/tests/testlib/fake_tmux.sh"
   create_fake_tmux_bin "$TEST_TMPDIR/bin"
+}
+
+turn_nav_cmd() {
+  bash "$ROOT/scripts/turn-nav" "$@"
+}
+
+assert_pane_actions() {
+  local pane_id=$1
+  local actions=$2
+  shift 2
+  for expected in "$@"; do
+    if ! printf '%s\n' "$actions" | grep -Fq "$expected"; then
+      printf 'ASSERTION FAILED: expected pane %s actions to include [%s]\nactions:\n%s\n' "$pane_id" "$expected" "$actions" >&2
+      exit 1
+    fi
+  done
 }
 
 test_completed_turns_exclude_live_prompt() {
@@ -44,35 +69,122 @@ test_baseline_is_clamped_by_visible_turn_count() {
   assert_eq "0" "$actual" "baseline should clamp to visible completed turn count"
 }
 
-test_state_helpers_manage_pane_scoped_files() {
+test_activate_records_pane_baseline() {
   setup_case
-  source "$ROOT/scripts/lib/state.sh"
+  fake_tmux_write_pane "%1" $'❯ before\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+  local baseline
+  baseline=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/baseline_turn_count")
+  assert_eq "1" "$baseline" "activate should store completed turn count at activation time"
+}
 
-  local pane_dir
-  pane_dir=$(turn_nav_pane_dir "%1")
-  assert_eq "$TURN_NAV_STATE_ROOT/session-1/%1" "$pane_dir" "pane dir should be scoped by session and pane"
+test_navigation_issues_tmux_actions() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ new one\nanswer\n❯ new two\nanswer\n❯ ' 0
 
-  turn_nav_write_state "%1" baseline_turn_count "3"
-  assert_eq "3" "$(turn_nav_read_state "%1" baseline_turn_count)" "write/read should round-trip state values"
+  turn_nav_cmd navigate up 1 %1
 
-  turn_nav_write_state "%1" current_turn "2"
-  turn_nav_delete_state "%1" current_turn
-  assert_eq "" "$(turn_nav_read_state "%1" current_turn)" "delete should remove one state file"
+  local actions
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_pane_actions "%1" "$actions" \
+    "copy-mode" \
+    "send-keys goto-line 2" \
+    "send-keys start-of-line" \
+    "send-keys search-backward ^[❯›]" \
+    "send-keys select-line"
+}
 
-  turn_nav_write_state "%1" active "1"
-  turn_nav_write_state "%1" last_status "Turn 2/3"
-  turn_nav_clear_pane_state "%1"
-
-  if [[ -e "$TURN_NAV_STATE_ROOT/session-1/%1" ]]; then
-    printf 'ASSERTION FAILED: clear should remove the entire pane state directory\n' >&2
+test_inactive_pane_ignores_navigation() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ ' 0
+  turn_nav_cmd navigate up 1 %1
+  if [[ -e "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn" ]]; then
+    printf 'ASSERTION FAILED: inactive pane should not write current_turn\n' >&2
     exit 1
   fi
+}
+
+test_stale_current_turn_is_clamped_before_navigation() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ new one\nanswer\n❯ new two\nanswer\n❯ new three\nanswer\n❯ ' 0
+  turn_nav_cmd navigate up 1 %1
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ only remaining\nanswer\n❯ ' 1
+
+  turn_nav_cmd navigate up 1 %1
+
+  local current status actions
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  status=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/last_status")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "1" "$current" "stale current_turn should clamp to the visible total before indexing"
+  assert_eq "⇅ Turn 1/1" "$status" "status should reflect the clamped visible turn"
+  assert_pane_actions "%1" "$actions" \
+    "send-keys goto-line 2" \
+    "send-keys search-backward ^[❯›]" \
+    "send-keys select-line"
+}
+
+test_copy_mode_without_current_turn_uses_bottom_sentinel() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ new one\nanswer\n❯ new two\nanswer\n❯ ' 1
+
+  turn_nav_cmd navigate up 1 %1
+
+  local current status actions
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  status=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/last_status")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "2" "$current" "copy mode without saved current_turn should start from the bottom sentinel"
+  assert_eq "⇅ Turn 2/2" "$status" "first up from copy mode should land on the newest visible turn"
+  assert_pane_actions "%1" "$actions" \
+    "send-keys goto-line 2" \
+    "send-keys search-backward ^[❯›]" \
+    "send-keys select-line"
+}
+
+test_two_panes_keep_navigation_state_isolated() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ pane one old\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+  fake_tmux_write_pane "%1" $'❯ pane one old\nanswer\n❯ pane one new a\nanswer\n❯ pane one new b\nanswer\n❯ ' 0
+  turn_nav_cmd navigate up 2 %1
+
+  export FAKE_TMUX_PANE_ID='%2'
+  fake_tmux_write_pane "%2" $'❯ pane two old\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+  fake_tmux_write_pane "%2" $'❯ pane two old\nanswer\n❯ pane two new a\nanswer\n❯ pane two new b\nanswer\n❯ pane two new c\nanswer\n❯ ' 0
+  turn_nav_cmd navigate up 1 %2
+
+  local pane_one_turn pane_one_status pane_two_turn pane_two_status pane_one_actions pane_two_actions
+  pane_one_turn=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  pane_one_status=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/last_status")
+  pane_two_turn=$(cat "$TURN_NAV_STATE_ROOT/session-1/%2/current_turn")
+  pane_two_status=$(cat "$TURN_NAV_STATE_ROOT/session-1/%2/last_status")
+  pane_one_actions=$(fake_tmux_read_pane_actions "%1")
+  pane_two_actions=$(fake_tmux_read_pane_actions "%2")
+  assert_eq "1" "$pane_one_turn" "pane one should keep its own current_turn"
+  assert_eq "⇅ Turn 1/2" "$pane_one_status" "pane one should keep its own status"
+  assert_eq "3" "$pane_two_turn" "pane two should keep its own current_turn"
+  assert_eq "⇅ Turn 3/3" "$pane_two_status" "pane two should keep its own status"
+  assert_pane_actions "%1" "$pane_one_actions" "copy-mode" "send-keys goto-line 4"
+  assert_pane_actions "%2" "$pane_two_actions" "copy-mode" "send-keys goto-line 2"
 }
 
 run_all() {
   test_completed_turns_exclude_live_prompt
   test_baseline_is_clamped_by_visible_turn_count
-  test_state_helpers_manage_pane_scoped_files
+  test_activate_records_pane_baseline
+  test_navigation_issues_tmux_actions
+  test_inactive_pane_ignores_navigation
+  test_stale_current_turn_is_clamped_before_navigation
+  test_copy_mode_without_current_turn_uses_bottom_sentinel
+  test_two_panes_keep_navigation_state_isolated
 }
 
 if [[ $# -gt 0 ]]; then

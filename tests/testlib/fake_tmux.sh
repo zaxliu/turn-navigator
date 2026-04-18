@@ -21,6 +21,12 @@ pane_file() {
   printf '%s/panes/%s.%s\n' "$root" "$1" "$2"
 }
 
+append_action() {
+  local pane_id=$1
+  shift
+  printf '%s\n' "$*" >>"$(pane_file "$pane_id" actions)"
+}
+
 pane_id_from_args() {
   local pane_id=
   while (($#)); do
@@ -64,12 +70,23 @@ case "$cmd" in
   copy-mode)
     pane_id=$(pane_id_from_args "$@")
     printf '1' >"$(pane_file "$pane_id" pane_in_mode)"
+    append_action "$pane_id" "copy-mode"
     ;;
   send-keys)
     pane_id=$(pane_id_from_args "$@")
-    if [[ ${4:-} == "cancel" ]]; then
+    action=${4:-}
+    case "$action" in
+      cancel)
       printf '0' >"$(pane_file "$pane_id" pane_in_mode)"
-    fi
+        append_action "$pane_id" "send-keys cancel"
+        ;;
+      goto-line|search-backward)
+        append_action "$pane_id" "send-keys $action ${5:-}"
+        ;;
+      start-of-line|select-line)
+        append_action "$pane_id" "send-keys $action"
+        ;;
+    esac
     ;;
   *)
     exit 1
@@ -86,4 +103,12 @@ fake_tmux_write_pane() {
   mkdir -p "${FAKE_TMUX_ROOT}/panes"
   printf '%s\n' "$content" >"${FAKE_TMUX_ROOT}/panes/${pane}.content"
   printf '%s' "$in_mode" >"${FAKE_TMUX_ROOT}/panes/${pane}.pane_in_mode"
+}
+
+fake_tmux_read_pane_actions() {
+  local pane=$1
+  local path="${FAKE_TMUX_ROOT}/panes/${pane}.actions"
+  if [[ -f "$path" ]]; then
+    cat "$path"
+  fi
 }

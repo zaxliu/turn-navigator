@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+source "$SCRIPT_DIR/lib/state.sh"
+source "$SCRIPT_DIR/lib/parse-turns.sh"
+source "$SCRIPT_DIR/lib/tmux-nav.sh"
+
+activate_cmd() {
+  turn_nav_in_tmux || exit 0
+  local pane_id=${1:-$(turn_nav_current_pane_id)}
+  local content baseline
+  content=$(turn_nav_capture_pane "$pane_id")
+  baseline=$(turn_nav_count_completed_turns "$content")
+  turn_nav_write_state "$pane_id" baseline_turn_count "$baseline"
+  turn_nav_delete_state "$pane_id" current_turn
+  turn_nav_delete_state "$pane_id" last_status
+  turn_nav_write_state "$pane_id" active 1
+}
+
+deactivate_cmd() {
+  turn_nav_in_tmux || exit 0
+  local pane_id=${1:-$(turn_nav_current_pane_id)}
+  turn_nav_clear_pane_state "$pane_id"
+}
+
+bottom_cmd() {
+  turn_nav_in_tmux || exit 0
+  local pane_id=$1
+  turn_nav_delete_state "$pane_id" current_turn
+  turn_nav_delete_state "$pane_id" last_status
+  if [[ "$(turn_nav_pane_in_copy_mode "$pane_id")" == "1" ]]; then
+    turn_nav_cancel_copy_mode "$pane_id"
+  fi
+}
+
+navigate_cmd() {
+  turn_nav_in_tmux || exit 0
+  local direction=$1
+  local count=$2
+  local pane_id=$3
+
+  turn_nav_is_active "$pane_id" || exit 0
+
+  local content baseline total_lines
+  content=$(turn_nav_capture_pane "$pane_id")
+  baseline=$(turn_nav_read_state "$pane_id" baseline_turn_count 0)
+
+  local lines=()
+  while IFS= read -r line; do
+    lines+=("$line")
+  done < <(turn_nav_visible_turn_lines "$content" "$baseline")
+  local total=${#lines[@]}
+  if (( total == 0 )); then
+    turn_nav_show_message "$pane_id" "No turns found"
+    exit 0
+  fi
+
+  local in_copy current new
+  in_copy=$(turn_nav_pane_in_copy_mode "$pane_id")
+  if [[ "$in_copy" == "1" ]]; then
+    current=$(turn_nav_read_state "$pane_id" current_turn "")
+    if [[ -z "$current" ]]; then
+      current=$((total + 1))
+    else
+      if (( current < 1 )); then
+        current=1
+      fi
+      if (( current > total )); then
+        current=$total
+      fi
+    fi
+  else
+    current=$((total + 1))
+  fi
+
+  if [[ "$direction" == "up" ]]; then
+    new=$((current - count))
+    (( new < 1 )) && new=1
+  else
+    new=$((current + count))
+    (( new > total )) && new=$total
+  fi
+
+  local status
+  status=$(turn_nav_status_text "$new" "$total")
+  turn_nav_write_state "$pane_id" current_turn "$new"
+  turn_nav_write_state "$pane_id" last_status "$status"
+
+  if [[ "$new" == "$current" ]]; then
+    turn_nav_show_message "$pane_id" "$status"
+    exit 0
+  fi
+
+  total_lines=$(printf '%s\n' "$content" | wc -l | tr -d ' ')
+  local target_line=${lines[$((new - 1))]}
+  local goto_line=$((total_lines - target_line))
+  (( goto_line < 0 )) && goto_line=0
+
+  if [[ "$in_copy" == "0" ]]; then
+    turn_nav_enter_copy_mode "$pane_id"
+  fi
+
+  turn_nav_jump_to_line "$pane_id" "$goto_line" "$(turn_nav_prompt_pattern)"
+  turn_nav_show_message "$pane_id" "$status"
+}
+
+status_cmd() {
+  turn_nav_in_tmux || exit 0
+  local pane_id=$1
+  turn_nav_is_active "$pane_id" || exit 0
+  [[ "$(turn_nav_pane_in_copy_mode "$pane_id")" == "1" ]] || exit 0
+  turn_nav_read_state "$pane_id" last_status ""
+}
+
+main() {
+  local command=${1:-}
+  case "$command" in
+    activate) shift; activate_cmd "$@" ;;
+    deactivate) shift; deactivate_cmd "$@" ;;
+    navigate) shift; navigate_cmd "$@" ;;
+    bottom) shift; bottom_cmd "$@" ;;
+    status) shift; status_cmd "$@" ;;
+    *)
+      printf 'usage: %s {activate|deactivate|navigate|bottom|status}\n' "$0" >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
