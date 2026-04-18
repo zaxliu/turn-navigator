@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 [[ -z "$TMUX" ]] && exit 0
 
-# --- 崩溃恢复 + 幂等：清理上次残留 ---
+# --- 崩溃恢复 + 幂等：清理上次残留（保留 baseline）---
 TMUX_SESSION_ID=$(tmux display-message -p '#{session_id}')
 STATE_DIR="/tmp/turn-nav-${TMUX_SESSION_ID}"
+OLD_BASELINE=""
+[[ -f "$STATE_DIR/baseline" ]] && OLD_BASELINE=$(cat "$STATE_DIR/baseline")
 rm -rf "$STATE_DIR"
 mkdir -p "$STATE_DIR"
 
-# --- 记录当前 session 起始行号（用于过滤上个 session 的 turn）---
-BASELINE=$(tmux capture-pane -p -S - | wc -l | tr -d ' ')
-echo "$BASELINE" > "$STATE_DIR/baseline"
+# --- 记录已有 turn 数量（resume 时保留原值，过滤旧 session 的 turn）---
+if [[ -n "$OLD_BASELINE" ]]; then
+  echo "$OLD_BASELINE" > "$STATE_DIR/baseline"
+else
+  P="${TURN_NAV_PATTERN:-^[❯›]}"
+  BASELINE=$(tmux capture-pane -p -S - | grep -c "$P")
+  echo "$BASELINE" > "$STATE_DIR/baseline"
+fi
 
 # --- 检测 copy-mode 类型 ---
 if tmux show-options -gv mode-keys 2>/dev/null | grep -q vi; then
