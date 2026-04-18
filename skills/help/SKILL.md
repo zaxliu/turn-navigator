@@ -15,7 +15,7 @@ Show the turn-navigator keybinding table:
 | q | Exit browse mode |
 
 Then check $TMUX env var:
-- If set: "Turn Navigator is active. Search pattern: ${TURN_NAV_PATTERN:-❯}"
-- If empty: "Warning: tmux not detected. Turn Navigator requires tmux."
+- If set: "Turn Navigator is available if tmux bindings are installed. Search pattern: ${TURN_NAV_PATTERN:-^[❯›]}"
+- If empty: "Warning: tmux not detected or bindings not installed."
 
 Keep it brief.

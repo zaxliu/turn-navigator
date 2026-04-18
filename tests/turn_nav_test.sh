@@ -22,6 +22,15 @@ assert_file_contains() {
   fi
 }
 
+assert_file_not_contains() {
+  local path=$1
+  local needle=$2
+  if grep -Fq "$needle" "$path"; then
+    printf 'ASSERTION FAILED: did not expect [%s] in %s\n' "$needle" "$path" >&2
+    exit 1
+  fi
+}
+
 setup_case() {
   export TEST_TMPDIR
   TEST_TMPDIR=$(mktemp -d)
@@ -289,6 +298,24 @@ test_static_tmux_config_status_right_is_idempotent() {
   assert_eq 'BASE#{?pane_in_mode,#[fg=colour0,bg=colour39,bold] #(sh -c "#{@turn_nav_root}/scripts/turn-nav status #{pane_id}") #[default],}' "$status_right" "tmux config should preserve existing status-right content and append the segment once"
 }
 
+test_readme_documents_static_tmux_installation() {
+  assert_file_contains "$ROOT/README.md" 'tmux source-file tmux/turn-nav.conf'
+  assert_file_contains "$ROOT/README.md" '@turn_nav_root'
+  assert_file_contains "$ROOT/README.md" '/tmp/turn-nav/<tmux_session_id>/<pane_id>/'
+  assert_file_contains "$ROOT/README.md" 'tmux bindings stay static after install'
+  assert_file_contains "$ROOT/README.md" 'Claude Code automatic activation'
+  assert_file_contains "$ROOT/README.md" 'Codex CLI prompt lines are supported by the default pattern'
+  assert_file_contains "$ROOT/README.md" 'For non-Claude workflows, activate the pane before navigating'
+  assert_file_contains "$ROOT/README.md" 'cleaned up by `scripts/turn-nav deactivate`'
+  assert_file_not_contains "$ROOT/README.md" 'Turn Navigator hooks installed in Claude Code'
+  assert_file_not_contains "$ROOT/README.md" 'cleaned up when the pane session ends'
+}
+
+test_help_skill_mentions_tmux_binding_requirement() {
+  assert_file_contains "$ROOT/skills/help/SKILL.md" 'tmux bindings are installed'
+  assert_file_contains "$ROOT/skills/help/SKILL.md" 'Warning: tmux not detected or bindings not installed.'
+}
+
 run_all() {
   test_completed_turns_exclude_live_prompt
   test_baseline_is_clamped_by_visible_turn_count
@@ -306,6 +333,8 @@ run_all() {
   test_static_tmux_config_preserves_preconfigured_root
   test_static_tmux_config_sets_default_root_when_unset
   test_static_tmux_config_status_right_is_idempotent
+  test_readme_documents_static_tmux_installation
+  test_help_skill_mentions_tmux_binding_requirement
 }
 
 if [[ $# -gt 0 ]]; then
