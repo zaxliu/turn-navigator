@@ -33,7 +33,11 @@ while IFS= read -r line; do
   ALL_LINES+=("$line")
 done < <(echo "$CONTENT" | grep -n "$P" | cut -d: -f1)
 
-# Skip turns from previous sessions
+# Skip turns from previous sessions (clamp if scrollback was truncated)
+ALL_TOTAL=${#ALL_LINES[@]}
+if (( SKIP > ALL_TOTAL )); then
+  SKIP=$ALL_TOTAL
+fi
 LINES=("${ALL_LINES[@]:$SKIP}")
 TOTAL=${#LINES[@]}
 
@@ -70,16 +74,21 @@ fi
 echo "$NEW" > "$STATE_DIR/current-turn"
 
 # --- 跳转 ---
-# Always reset to bottom, then search backward to the Nth turn
+# Use goto-line for instant jump (no flashing), then single search to snap
+TARGET_LINE=${LINES[$((NEW - 1))]}
+TOTAL_LINES=$(echo "$CONTENT" | wc -l | tr -d ' ')
+# goto-line counts from bottom (0=last line)
+GOTO=$((TOTAL_LINES - TARGET_LINE))
+(( GOTO < 0 )) && GOTO=0
+
 if [[ "$IN_COPY" -eq 0 ]]; then
   tmux copy-mode -t "$PANE_ID"
 fi
 
-tmux send-keys -t "$PANE_ID" -X history-bottom
-SEARCH_COUNT=$((TOTAL - NEW + 1))
-for (( i=0; i<SEARCH_COUNT; i++ )); do
-  tmux send-keys -t "$PANE_ID" -X search-backward "$P"
-done
+# Instant jump to approximate position, then snap to exact turn
+tmux send-keys -t "$PANE_ID" -X goto-line "$GOTO"
+tmux send-keys -t "$PANE_ID" -X start-of-line
+tmux send-keys -t "$PANE_ID" -X search-backward "$P"
 tmux send-keys -t "$PANE_ID" -X select-line
 
 # --- 更新状态指示器 ---
