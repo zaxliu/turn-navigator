@@ -31,6 +31,15 @@ assert_file_not_contains() {
   fi
 }
 
+assert_empty() {
+  local actual=$1
+  local message=$2
+  if [[ -n "$actual" ]]; then
+    printf 'ASSERTION FAILED: %s\nactual: [%s]\n' "$message" "$actual" >&2
+    exit 1
+  fi
+}
+
 setup_case() {
   export TEST_TMPDIR
   TEST_TMPDIR=$(mktemp -d)
@@ -92,6 +101,48 @@ test_baseline_is_clamped_by_visible_turn_count() {
   local actual
   actual=$(turn_nav_visible_turn_lines "$content" 5 | wc -l | tr -d ' ')
   assert_eq "0" "$actual" "baseline should clamp to visible completed turn count"
+}
+
+test_invalid_prompt_pattern_is_treated_as_zero_matches() {
+  setup_case
+  source "$ROOT/scripts/lib/parse-turns.sh"
+  local stdout stderr
+  TURN_NAV_PATTERN='[' stdout=$(turn_nav_completed_turn_lines $'❯ one\nanswer\n❯ ' 2>"$TEST_TMPDIR/stderr")
+  stderr=$(cat "$TEST_TMPDIR/stderr")
+  assert_empty "$stdout" "invalid prompt pattern should produce no matches"
+  assert_empty "$stderr" "invalid prompt pattern should not leak grep diagnostics"
+}
+
+test_corrupt_numeric_navigation_state_does_not_abort() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ new one\nanswer\n❯ new two\nanswer\n❯ ' 1
+  printf 'abc' >"$TURN_NAV_STATE_ROOT/session-1/%1/current_turn"
+
+  local stderr current status
+  turn_nav_cmd navigate up 1 %1 2>"$TEST_TMPDIR/stderr"
+  stderr=$(cat "$TEST_TMPDIR/stderr")
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  status=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/last_status")
+  assert_empty "$stderr" "corrupt current_turn should not abort with shell diagnostics"
+  assert_eq "2" "$current" "corrupt current_turn should reset to the bottom sentinel behavior"
+  assert_eq "⇅ Turn 2/2" "$status" "status should reflect safe current_turn reset"
+}
+
+test_corrupt_baseline_state_is_treated_as_inactive_navigation() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ new one\nanswer\n❯ new two\nanswer\n❯ ' 0
+  printf 'nope' >"$TURN_NAV_STATE_ROOT/session-1/%1/baseline_turn_count"
+
+  local stderr current_exists
+  turn_nav_cmd navigate up 1 %1 2>"$TEST_TMPDIR/stderr"
+  stderr=$(cat "$TEST_TMPDIR/stderr")
+  current_exists=$(find "$TURN_NAV_STATE_ROOT/session-1/%1" -name current_turn -print | wc -l | tr -d ' ')
+  assert_empty "$stderr" "corrupt baseline_turn_count should not leak shell diagnostics"
+  assert_eq "0" "$current_exists" "corrupt baseline_turn_count should not navigate"
 }
 
 test_activate_records_pane_baseline() {
@@ -319,6 +370,9 @@ test_help_skill_mentions_tmux_binding_requirement() {
 run_all() {
   test_completed_turns_exclude_live_prompt
   test_baseline_is_clamped_by_visible_turn_count
+  test_invalid_prompt_pattern_is_treated_as_zero_matches
+  test_corrupt_numeric_navigation_state_does_not_abort
+  test_corrupt_baseline_state_is_treated_as_inactive_navigation
   test_activate_records_pane_baseline
   test_deactivate_clears_only_pane_state
   test_navigation_issues_tmux_actions

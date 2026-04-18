@@ -64,3 +64,7 @@ turn_nav_clear_pane_state() {
 turn_nav_is_active() {
   [[ "$(turn_nav_read_state "$1" active 0)" == "1" ]]
 }
+
+turn_nav_is_nonnegative_integer() {
+  [[ ${1:-} =~ ^[0-9]+$ ]]
+}

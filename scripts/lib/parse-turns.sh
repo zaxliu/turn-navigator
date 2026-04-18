@@ -11,7 +11,7 @@ turn_nav_completed_turn_lines() {
   local lines=()
   while IFS= read -r line; do
     lines+=("$line")
-  done < <(printf '%s\n' "$content" | grep -nE -- "$pattern" | cut -d: -f1 || true)
+  done < <(printf '%s\n' "$content" | grep -nE -- "$pattern" 2>/dev/null | cut -d: -f1 || true)
   local count=${#lines[@]}
   if (( count == 0 )); then
     return 0
@@ -27,6 +27,9 @@ turn_nav_visible_turn_lines() {
   while IFS= read -r line; do
     completed+=("$line")
   done < <(turn_nav_completed_turn_lines "$content")
+  if ! [[ ${baseline:-} =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
   local total=${#completed[@]}
   if (( baseline < 0 )); then
     baseline=0

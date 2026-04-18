@@ -41,10 +41,12 @@ navigate_cmd() {
   local pane_id=$3
 
   turn_nav_is_active "$pane_id" || exit 0
+  turn_nav_is_nonnegative_integer "$count" || exit 0
 
   local content baseline total_lines
   content=$(turn_nav_capture_pane "$pane_id")
   baseline=$(turn_nav_read_state "$pane_id" baseline_turn_count 0)
+  turn_nav_is_nonnegative_integer "$baseline" || exit 0
 
   local lines=()
   while IFS= read -r line; do
@@ -61,6 +63,8 @@ navigate_cmd() {
   if [[ "$in_copy" == "1" ]]; then
     current=$(turn_nav_read_state "$pane_id" current_turn "")
     if [[ -z "$current" ]]; then
+      current=$((total + 1))
+    elif ! turn_nav_is_nonnegative_integer "$current"; then
       current=$((total + 1))
     else
       if (( current < 1 )); then
