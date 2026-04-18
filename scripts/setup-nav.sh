@@ -7,6 +7,10 @@ STATE_DIR="/tmp/turn-nav-${TMUX_SESSION_ID}"
 rm -rf "$STATE_DIR"
 mkdir -p "$STATE_DIR"
 
+# --- 记录当前 session 起始行号（用于过滤上个 session 的 turn）---
+BASELINE=$(tmux capture-pane -p -S - | wc -l | tr -d ' ')
+echo "$BASELINE" > "$STATE_DIR/baseline"
+
 # --- 检测 copy-mode 类型 ---
 if tmux show-options -gv mode-keys 2>/dev/null | grep -q vi; then
   COPY_TABLE="copy-mode-vi"

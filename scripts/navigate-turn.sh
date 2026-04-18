@@ -21,15 +21,19 @@ if [[ "$DIRECTION" == "bottom" ]]; then
   exit 0
 fi
 
-# --- 捕获 pane 全部内容，找出所有 turn 行号 ---
+# --- 捕获 pane 全部内容，找出当前 session 的 turn 行号 ---
 CONTENT=$(tmux capture-pane -t "$PANE_ID" -p -S -)
 if [[ -z "$CONTENT" ]]; then
   tmux display-message "No content in pane"
   exit 0
 fi
+BASELINE=$(cat "$STATE_DIR/baseline" 2>/dev/null || echo "0")
 LINES=()
 while IFS= read -r line; do
-  LINES+=("$line")
+  # Only include turns after the session baseline
+  if [[ "$line" -ge "$BASELINE" ]]; then
+    LINES+=("$line")
+  fi
 done < <(echo "$CONTENT" | grep -n "$P" | cut -d: -f1)
 TOTAL=${#LINES[@]}
 
