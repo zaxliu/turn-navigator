@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: scripts
+
+  validate:
+    name: Validate configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JSON files
+        run: |
+          for f in .claude-plugin/plugin.json hooks/hooks.json; do
+            echo "Validating $f..."
+            python3 -c "import json; json.load(open('$f'))" || exit 1
+          done
+          echo "All JSON valid"
+
+      - name: Check scripts are executable
+        run: |
+          for f in scripts/*.sh; do
+            if [[ ! -x "$f" ]]; then
+              echo "ERROR: $f is not executable"
+              exit 1
+            fi
+          done
+          echo "All scripts executable"
+
+      - name: Check required files exist
+        run: |
+          for f in .claude-plugin/plugin.json hooks/hooks.json README.md LICENSE; do
+            if [[ ! -f "$f" ]]; then
+              echo "ERROR: $f missing"
+              exit 1
+            fi
+          done
+          echo "All required files present"
