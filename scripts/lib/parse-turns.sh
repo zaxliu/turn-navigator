@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+turn_nav_prompt_pattern() {
+  printf '%s\n' "${TURN_NAV_PATTERN:-^[❯›]}"
+}
+
+turn_nav_completed_turn_lines() {
+  local content=$1
+  local pattern
+  pattern=$(turn_nav_prompt_pattern)
+  local lines=()
+  while IFS= read -r line; do
+    lines+=("$line")
+  done < <(printf '%s\n' "$content" | grep -nE -- "$pattern" | cut -d: -f1 || true)
+  local count=${#lines[@]}
+  if (( count == 0 )); then
+    return 0
+  fi
+  unset "lines[$((count - 1))]"
+  printf '%s\n' "${lines[@]}"
+}
+
+turn_nav_visible_turn_lines() {
+  local content=$1
+  local baseline=$2
+  local completed=()
+  while IFS= read -r line; do
+    completed+=("$line")
+  done < <(turn_nav_completed_turn_lines "$content")
+  local total=${#completed[@]}
+  if (( baseline < 0 )); then
+    baseline=0
+  fi
+  if (( baseline > total )); then
+    baseline=$total
+  fi
+  if (( baseline >= total )); then
+    return 0
+  fi
+  printf '%s\n' "${completed[@]:$baseline}"
+}
+
+turn_nav_count_completed_turns() {
+  local content=$1
+  local completed=()
+  while IFS= read -r line; do
+    completed+=("$line")
+  done < <(turn_nav_completed_turn_lines "$content")
+  printf '%s\n' "${#completed[@]}"
+}
