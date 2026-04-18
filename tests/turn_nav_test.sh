@@ -39,6 +39,22 @@ turn_nav_cmd() {
   bash "$ROOT/scripts/turn-nav" "$@"
 }
 
+setup_tmux_config_case() {
+  export TURN_NAV_TMUX_SOCKET="turn-nav-test-$$-$RANDOM"
+  tmux -L "$TURN_NAV_TMUX_SOCKET" -f /dev/null new-session -d -s turn-nav-test >/dev/null
+}
+
+tmux_config_cmd() {
+  tmux -L "$TURN_NAV_TMUX_SOCKET" "$@"
+}
+
+cleanup_tmux_config_case() {
+  if [[ -n "${TURN_NAV_TMUX_SOCKET:-}" ]]; then
+    tmux -L "$TURN_NAV_TMUX_SOCKET" kill-server >/dev/null 2>&1 || true
+    unset TURN_NAV_TMUX_SOCKET
+  fi
+}
+
 assert_pane_actions() {
   local pane_id=$1
   local actions=$2
@@ -76,6 +92,25 @@ test_activate_records_pane_baseline() {
   local baseline
   baseline=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/baseline_turn_count")
   assert_eq "1" "$baseline" "activate should store completed turn count at activation time"
+}
+
+test_deactivate_clears_only_pane_state() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+
+  export FAKE_TMUX_PANE_ID='%2'
+  fake_tmux_write_pane "%2" $'❯ two\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+
+  export FAKE_TMUX_PANE_ID='%1'
+  turn_nav_cmd deactivate
+
+  local pane_one_exists pane_two_exists
+  pane_one_exists=$(find "$TURN_NAV_STATE_ROOT/session-1" -maxdepth 1 -type d -name '%1' | wc -l | tr -d ' ')
+  pane_two_exists=$(find "$TURN_NAV_STATE_ROOT/session-1" -maxdepth 1 -type d -name '%2' | wc -l | tr -d ' ')
+  assert_eq "0" "$pane_one_exists" "deactivate should delete the active pane state directory"
+  assert_eq "1" "$pane_two_exists" "deactivate should not touch other pane state"
 }
 
 test_navigation_issues_tmux_actions() {
@@ -176,15 +211,101 @@ test_two_panes_keep_navigation_state_isolated() {
   assert_pane_actions "%2" "$pane_two_actions" "copy-mode" "send-keys goto-line 2"
 }
 
+test_legacy_shims_delegate_to_turn_nav() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ before\nanswer\n❯ ' 0
+  bash "$ROOT/scripts/setup-nav.sh"
+  local baseline
+  baseline=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/baseline_turn_count")
+  assert_eq "1" "$baseline" "setup-nav shim should delegate to activate"
+}
+
+test_navigate_shim_delegates_to_turn_nav() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+  fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ new one\nanswer\n❯ new two\nanswer\n❯ ' 0
+
+  bash "$ROOT/scripts/navigate-turn.sh" up 1 %1
+
+  local current actions
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "2" "$current" "navigate-turn shim should delegate to navigate"
+  assert_pane_actions "%1" "$actions" "copy-mode" "send-keys goto-line 2"
+}
+
+test_cleanup_shim_delegates_to_turn_nav() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+
+  bash "$ROOT/scripts/cleanup-nav.sh"
+
+  local pane_exists
+  pane_exists=$(find "$TURN_NAV_STATE_ROOT/session-1" -maxdepth 1 -type d -name '%1' | wc -l | tr -d ' ')
+  assert_eq "0" "$pane_exists" "cleanup-nav shim should delegate to deactivate"
+}
+
+test_static_tmux_config_references_turn_nav_entrypoints() {
+  assert_file_contains "$ROOT/tmux/turn-nav.conf" 'scripts/turn-nav navigate up 1 #{pane_id}'
+  assert_file_contains "$ROOT/tmux/turn-nav.conf" 'scripts/turn-nav bottom #{pane_id}'
+  assert_file_contains "$ROOT/tmux/turn-nav.conf" 'scripts/turn-nav status #{pane_id}'
+}
+
+test_static_tmux_config_preserves_preconfigured_root() {
+  setup_tmux_config_case
+  tmux_config_cmd set-option -g @turn_nav_root "/tmp/custom-turn-nav"
+  tmux_config_cmd source-file "$ROOT/tmux/turn-nav.conf"
+
+  local actual
+  actual=$(tmux_config_cmd show-option -gv @turn_nav_root)
+  cleanup_tmux_config_case
+  assert_eq "/tmp/custom-turn-nav" "$actual" "tmux config should preserve a caller-provided @turn_nav_root"
+}
+
+test_static_tmux_config_sets_default_root_when_unset() {
+  setup_tmux_config_case
+  tmux_config_cmd source-file "$ROOT/tmux/turn-nav.conf"
+
+  local actual
+  actual=$(tmux_config_cmd show-option -gv @turn_nav_root)
+  cleanup_tmux_config_case
+  assert_eq "$HOME/.claude/plugins/turn-navigator" "$actual" "tmux config should set the default @turn_nav_root when unset"
+}
+
+test_static_tmux_config_status_right_is_idempotent() {
+  setup_tmux_config_case
+  tmux_config_cmd set-option -g status-right "BASE"
+  tmux_config_cmd source-file "$ROOT/tmux/turn-nav.conf"
+  tmux_config_cmd source-file "$ROOT/tmux/turn-nav.conf"
+
+  local status_right occurrences
+  status_right=$(tmux_config_cmd show-option -gv status-right)
+  cleanup_tmux_config_case
+
+  occurrences=$(printf '%s' "$status_right" | grep -oF 'scripts/turn-nav status #{pane_id}' | wc -l | tr -d ' ')
+  assert_eq "1" "$occurrences" "tmux config should append the turn-nav status segment only once when re-sourced"
+  assert_eq 'BASE#{?pane_in_mode,#[fg=colour0,bg=colour39,bold] #(sh -c "#{@turn_nav_root}/scripts/turn-nav status #{pane_id}") #[default],}' "$status_right" "tmux config should preserve existing status-right content and append the segment once"
+}
+
 run_all() {
   test_completed_turns_exclude_live_prompt
   test_baseline_is_clamped_by_visible_turn_count
   test_activate_records_pane_baseline
+  test_deactivate_clears_only_pane_state
   test_navigation_issues_tmux_actions
   test_inactive_pane_ignores_navigation
   test_stale_current_turn_is_clamped_before_navigation
   test_copy_mode_without_current_turn_uses_bottom_sentinel
   test_two_panes_keep_navigation_state_isolated
+  test_legacy_shims_delegate_to_turn_nav
+  test_navigate_shim_delegates_to_turn_nav
+  test_cleanup_shim_delegates_to_turn_nav
+  test_static_tmux_config_references_turn_nav_entrypoints
+  test_static_tmux_config_preserves_preconfigured_root
+  test_static_tmux_config_sets_default_root_when_unset
+  test_static_tmux_config_status_right_is_idempotent
 }
 
 if [[ $# -gt 0 ]]; then

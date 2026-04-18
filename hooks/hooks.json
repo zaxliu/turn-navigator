@@ -5,11 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/setup-nav.sh"
-          },
-          {
-            "type": "prompt",
-            "prompt": "Turn Navigator plugin is active. Show the user a compact keybinding table:\n\n| Key | Action |\n|-----|--------|\n| Shift+↑ | Previous turn |\n| Shift+↓ | Next turn |\n| Alt+↑ | Up 5 turns |\n| Alt+↓ | Down 5 turns |\n| Ctrl+G | Jump to bottom |\n| q | Exit browse mode |\n\nKeep it to just the table, no extra explanation. Add a note: requires tmux."
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/turn-nav activate"
           }
         ]
       }
@@ -19,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-nav.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/turn-nav deactivate"
           }
         ]
       }
