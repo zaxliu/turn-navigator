@@ -200,14 +200,37 @@ test_navigation_issues_tmux_actions() {
     "send-keys select-line"
 }
 
-test_inactive_pane_ignores_navigation() {
+test_missing_pane_state_lazy_activates_on_navigation() {
   setup_case
-  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ ' 0
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ ' 0
+
   turn_nav_cmd navigate up 1 %1
-  if [[ -e "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn" ]]; then
-    printf 'ASSERTION FAILED: inactive pane should not write current_turn\n' >&2
-    exit 1
-  fi
+
+  local active baseline current actions
+  active=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/active")
+  baseline=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/baseline_turn_count")
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "1" "$active" "navigation should lazily activate panes without state"
+  assert_eq "0" "$baseline" "lazy activation should include existing scrollback turns"
+  assert_eq "2" "$current" "first lazy up navigation should land on newest completed turn"
+  assert_pane_actions "%1" "$actions" "copy-mode" "send-keys goto-line 2"
+}
+
+test_first_navigation_after_activation_can_use_existing_scrollback() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ ' 0
+  turn_nav_cmd activate
+
+  turn_nav_cmd navigate up 1 %1
+
+  local baseline current actions
+  baseline=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/baseline_turn_count")
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "0" "$baseline" "first navigation should include existing scrollback when activation hid every turn"
+  assert_eq "2" "$current" "first up navigation should land on newest completed scrollback turn"
+  assert_pane_actions "%1" "$actions" "copy-mode" "send-keys goto-line 2"
 }
 
 test_stale_current_turn_is_clamped_before_navigation() {
@@ -389,9 +412,10 @@ test_readme_documents_static_tmux_installation() {
   assert_file_contains "$ROOT/README.md" '/tmp/turn-nav/<tmux_session_id>/<pane_id>/'
   assert_file_contains "$ROOT/README.md" 'tmux bindings stay static after install'
   assert_file_contains "$ROOT/README.md" 'Claude Code installs the tmux bindings automatically on SessionStart'
+  assert_file_contains "$ROOT/README.md" 'first navigation keypress also lazily activates that pane'
   assert_file_contains "$ROOT/README.md" 'Claude Code automatic activation'
   assert_file_contains "$ROOT/README.md" 'Codex CLI prompt lines are supported by the default pattern'
-  assert_file_contains "$ROOT/README.md" 'For non-Claude workflows, activate the pane before navigating'
+  assert_file_contains "$ROOT/README.md" 'For non-Claude workflows, the static tmux bindings can lazily activate a pane'
   assert_file_contains "$ROOT/README.md" 'cleaned up by `scripts/turn-nav deactivate`'
   assert_file_not_contains "$ROOT/README.md" 'Turn Navigator hooks installed in Claude Code'
   assert_file_not_contains "$ROOT/README.md" 'cleaned up when the pane session ends'
@@ -411,7 +435,8 @@ run_all() {
   test_activate_records_pane_baseline
   test_deactivate_clears_only_pane_state
   test_navigation_issues_tmux_actions
-  test_inactive_pane_ignores_navigation
+  test_missing_pane_state_lazy_activates_on_navigation
+  test_first_navigation_after_activation_can_use_existing_scrollback
   test_stale_current_turn_is_clamped_before_navigation
   test_copy_mode_without_current_turn_uses_bottom_sentinel
   test_two_panes_keep_navigation_state_isolated

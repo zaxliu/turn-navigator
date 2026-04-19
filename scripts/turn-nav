@@ -47,8 +47,13 @@ navigate_cmd() {
   local count=$2
   local pane_id=$3
 
-  turn_nav_is_active "$pane_id" || exit 0
   turn_nav_is_nonnegative_integer "$count" || exit 0
+  if ! turn_nav_is_active "$pane_id"; then
+    turn_nav_write_state "$pane_id" baseline_turn_count 0
+    turn_nav_delete_state "$pane_id" current_turn
+    turn_nav_delete_state "$pane_id" last_status
+    turn_nav_write_state "$pane_id" active 1
+  fi
 
   local content baseline total_lines
   content=$(turn_nav_capture_pane "$pane_id")
@@ -60,6 +65,15 @@ navigate_cmd() {
     lines+=("$line")
   done < <(turn_nav_visible_turn_lines "$content" "$baseline")
   local total=${#lines[@]}
+  if (( total == 0 && baseline > 0 )) && [[ -z "$(turn_nav_read_state "$pane_id" current_turn "")" ]]; then
+    baseline=0
+    turn_nav_write_state "$pane_id" baseline_turn_count "$baseline"
+    lines=()
+    while IFS= read -r line; do
+      lines+=("$line")
+    done < <(turn_nav_visible_turn_lines "$content" "$baseline")
+    total=${#lines[@]}
+  fi
   if (( total == 0 )); then
     turn_nav_show_message "$pane_id" "No turns found"
     exit 0
