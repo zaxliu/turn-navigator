@@ -117,16 +117,26 @@ navigate_cmd() {
     exit 0
   fi
 
-  total_lines=$(printf '%s\n' "$content" | wc -l | tr -d ' ')
+  total_lines=$(turn_nav_effective_bottom_line "$pane_id")
+  if ! turn_nav_is_nonnegative_integer "$total_lines"; then
+    total_lines=$(printf '%s\n' "$content" | wc -l | tr -d ' ')
+  fi
   local target_line=${lines[$((new - 1))]}
   local goto_line=$((total_lines - target_line))
   (( goto_line < 0 )) && goto_line=0
+  local top_cursor_down_count history_size
+  top_cursor_down_count=
+  history_size=$(turn_nav_history_size "$pane_id")
+  if turn_nav_is_nonnegative_integer "$history_size" && (( goto_line > history_size )); then
+    top_cursor_down_count=$((target_line - 1))
+    goto_line=$history_size
+  fi
 
   if [[ "$in_copy" == "0" ]]; then
     turn_nav_enter_copy_mode "$pane_id"
   fi
 
-  turn_nav_jump_to_line "$pane_id" "$goto_line" "$(turn_nav_prompt_pattern)"
+  turn_nav_jump_to_line "$pane_id" "$goto_line" "$top_cursor_down_count"
   turn_nav_show_message "$pane_id" "$status"
 }
 

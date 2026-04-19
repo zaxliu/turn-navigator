@@ -57,6 +57,10 @@ case "$cmd" in
       esac
     elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{pane_in_mode}' ]]; then
       cat "$(pane_file "$2" pane_in_mode)"
+    elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{history_size}' ]]; then
+      cat "$(pane_file "$2" history_size)"
+    elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{cursor_y}' ]]; then
+      cat "$(pane_file "$2" cursor_y)"
     elif [[ ${1:-} == "-t" ]]; then
       printf '%s\n' "${3:-}" >>"$log_file"
     else
@@ -85,7 +89,7 @@ case "$cmd" in
       goto-line|search-backward)
         append_action "$pane_id" "send-keys $action ${5:-}"
         ;;
-      start-of-line|select-line)
+      start-of-line|select-line|cursor-up|cursor-down|top-line)
         append_action "$pane_id" "send-keys $action"
         ;;
     esac
@@ -105,6 +109,21 @@ fake_tmux_write_pane() {
   mkdir -p "${FAKE_TMUX_ROOT}/panes"
   printf '%s\n' "$content" >"${FAKE_TMUX_ROOT}/panes/${pane}.content"
   printf '%s' "$in_mode" >"${FAKE_TMUX_ROOT}/panes/${pane}.pane_in_mode"
+  local line_count cursor_y history_size
+  line_count=$(printf '%s\n' "$content" | wc -l | tr -d ' ')
+  cursor_y=0
+  history_size=$((line_count - 1))
+  printf '%s' "$history_size" >"${FAKE_TMUX_ROOT}/panes/${pane}.history_size"
+  printf '%s' "$cursor_y" >"${FAKE_TMUX_ROOT}/panes/${pane}.cursor_y"
+}
+
+fake_tmux_set_pane_position() {
+  local pane=$1
+  local history_size=$2
+  local cursor_y=$3
+  mkdir -p "${FAKE_TMUX_ROOT}/panes"
+  printf '%s' "$history_size" >"${FAKE_TMUX_ROOT}/panes/${pane}.history_size"
+  printf '%s' "$cursor_y" >"${FAKE_TMUX_ROOT}/panes/${pane}.cursor_y"
 }
 
 fake_tmux_read_pane_actions() {

@@ -95,6 +95,27 @@ assert_pane_actions() {
   done
 }
 
+assert_pane_actions_not() {
+  local pane_id=$1
+  local actions=$2
+  shift 2
+  for unexpected in "$@"; do
+    if printf '%s\n' "$actions" | grep -Fq "$unexpected"; then
+      printf 'ASSERTION FAILED: expected pane %s actions not to include [%s]\nactions:\n%s\n' "$pane_id" "$unexpected" "$actions" >&2
+      exit 1
+    fi
+  done
+}
+
+assert_action_count() {
+  local expected=$1
+  local actions=$2
+  local needle=$3
+  local actual
+  actual=$(printf '%s\n' "$actions" | grep -Fc "$needle" || true)
+  assert_eq "$expected" "$actual" "expected [$needle] action count"
+}
+
 test_completed_turns_exclude_live_prompt() {
   setup_case
   source "$ROOT/scripts/lib/parse-turns.sh"
@@ -130,6 +151,15 @@ test_default_prompt_pattern_does_not_match_claude_status_lines() {
   content=$'› first\nanswer\n• Ran command\n─ Worked for 1m\n  ❯ quoted prompt\n❯ second\nanswer\n› '
   actual=$(turn_nav_completed_turn_lines "$content" | tr '\n' ',' | sed 's/,$//')
   assert_eq "1,6" "$actual" "default prompt pattern should not match Claude status, separator, or quoted prompt lines"
+}
+
+test_claude_banner_limits_turns_to_current_session() {
+  setup_case
+  source "$ROOT/scripts/lib/parse-turns.sh"
+  local content actual
+  content=$'❯ source ~/.zshrc\ncompinit:527: no such file\n❯ happy claude --resume abc --dangerously-skip-permissions\nUsing Claude Code v2.1.92 from npm\n ▐▛███▜▌   Claude Code v2.1.92\n▝▜█████▛▘  Opus 4.6\n  ▘▘ ▝▝    ~/Documents/code/turn_navigator\n\n❯ analyze pane turns\nanswer\n❯ /reload-plugins\nreloaded\n❯ '
+  actual=$(turn_nav_visible_turn_lines "$content" 0 | tr '\n' ',' | sed 's/,$//')
+  assert_eq "9,11" "$actual" "Claude banner should exclude shell prompts before the current Claude session"
 }
 
 test_corrupt_numeric_navigation_state_does_not_abort() {
@@ -206,8 +236,52 @@ test_navigation_issues_tmux_actions() {
     "copy-mode" \
     "send-keys goto-line 2" \
     "send-keys start-of-line" \
-    "send-keys search-backward ^(❯|›)" \
     "send-keys select-line"
+  assert_pane_actions_not "%1" "$actions" "send-keys search-backward"
+}
+
+test_navigation_does_not_search_backward_from_exact_prompt_line() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ source ~/.zshrc\ncompinit:527: no such file\n❯ happy claude --resume abc\nUsing Claude Code v2.1.92 from npm\n ▐▛███▜▌   Claude Code v2.1.92\n\n❯ first claude turn\nanswer\n❯ second claude turn\nanswer\n❯ ' 0
+
+  turn_nav_cmd navigate up 2 %1
+
+  local current actions
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "1" "$current" "jumping to the first Claude turn should target the first visible turn"
+  assert_pane_actions "%1" "$actions" "copy-mode" "send-keys goto-line 4" "send-keys start-of-line" "send-keys select-line"
+  assert_pane_actions_not "%1" "$actions" "send-keys search-backward"
+}
+
+test_navigation_uses_tmux_cursor_bottom_not_capture_footer() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ first\nanswer\n❯ second\nanswer\n❯ third\nanswer\n❯\nfooter 1\nfooter 2\nfooter 3\nfooter 4\nfooter 5' 0
+  fake_tmux_set_pane_position "%1" 5 1
+
+  turn_nav_cmd navigate up 1 %1
+
+  local actions
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 2" "send-keys select-line"
+  assert_pane_actions_not "%1" "$actions" "send-keys goto-line 7" "send-keys top-line" "send-keys cursor-down"
+}
+
+test_navigation_adjusts_cursor_when_target_is_on_history_top_page() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ first\nanswer\n❯ second\nanswer\n❯ third\nanswer\n❯\nfooter 1\nfooter 2\nfooter 3\nfooter 4\nfooter 5' 0
+  fake_tmux_set_pane_position "%1" 5 6
+
+  turn_nav_cmd navigate up 2 %1
+
+  local current actions
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "2" "$current" "navigation should target a turn on the history top page"
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 5" "send-keys top-line" "send-keys select-line"
+  assert_action_count "2" "$actions" "send-keys cursor-down"
+  assert_pane_actions_not "%1" "$actions" "send-keys cursor-up"
+  assert_pane_actions_not "%1" "$actions" "send-keys goto-line 9"
 }
 
 test_missing_pane_state_lazy_activates_on_navigation() {
@@ -261,8 +335,8 @@ test_stale_current_turn_is_clamped_before_navigation() {
   assert_eq "⇅ Turn 1/1" "$status" "status should reflect the clamped visible turn"
   assert_pane_actions "%1" "$actions" \
     "send-keys goto-line 2" \
-    "send-keys search-backward ^(❯|›)" \
     "send-keys select-line"
+  assert_pane_actions_not "%1" "$actions" "send-keys search-backward"
 }
 
 test_copy_mode_without_current_turn_uses_bottom_sentinel() {
@@ -281,8 +355,8 @@ test_copy_mode_without_current_turn_uses_bottom_sentinel() {
   assert_eq "⇅ Turn 2/2" "$status" "first up from copy mode should land on the newest visible turn"
   assert_pane_actions "%1" "$actions" \
     "send-keys goto-line 2" \
-    "send-keys search-backward ^(❯|›)" \
     "send-keys select-line"
+  assert_pane_actions_not "%1" "$actions" "send-keys search-backward"
 }
 
 test_two_panes_keep_navigation_state_isolated() {
@@ -441,11 +515,15 @@ run_all() {
   test_baseline_is_clamped_by_visible_turn_count
   test_invalid_prompt_pattern_is_treated_as_zero_matches
   test_default_prompt_pattern_does_not_match_claude_status_lines
+  test_claude_banner_limits_turns_to_current_session
   test_corrupt_numeric_navigation_state_does_not_abort
   test_corrupt_baseline_state_is_treated_as_inactive_navigation
   test_activate_records_pane_baseline
   test_deactivate_clears_only_pane_state
   test_navigation_issues_tmux_actions
+  test_navigation_does_not_search_backward_from_exact_prompt_line
+  test_navigation_uses_tmux_cursor_bottom_not_capture_footer
+  test_navigation_adjusts_cursor_when_target_is_on_history_top_page
   test_missing_pane_state_lazy_activates_on_navigation
   test_first_navigation_after_activation_can_use_existing_scrollback
   test_stale_current_turn_is_clamped_before_navigation

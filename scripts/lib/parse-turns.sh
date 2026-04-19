@@ -4,13 +4,26 @@ turn_nav_prompt_pattern() {
   printf '%s\n' "${TURN_NAV_PATTERN:-^(❯|›)}"
 }
 
+turn_nav_claude_session_boundary_line() {
+  local content=$1
+  printf '%s\n' "$content" |
+    grep -nE '^(╭─── Claude Code v[0-9]|[[:space:]]?▐▛███▜▌[[:space:]]+Claude Code v[0-9])' 2>/dev/null |
+    tail -1 |
+    cut -d: -f1 || true
+}
+
 turn_nav_completed_turn_lines() {
   local content=$1
   local pattern
   pattern=$(turn_nav_prompt_pattern)
+  local boundary
+  boundary=$(turn_nav_claude_session_boundary_line "$content")
+  boundary=${boundary:-0}
   local lines=()
   while IFS= read -r line; do
-    lines+=("$line")
+    if (( line > boundary )); then
+      lines+=("$line")
+    fi
   done < <(printf '%s\n' "$content" | grep -nE -- "$pattern" 2>/dev/null | cut -d: -f1 || true)
   local count=${#lines[@]}
   if (( count == 0 )); then
