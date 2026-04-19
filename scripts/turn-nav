@@ -25,12 +25,14 @@ activate_cmd() {
   turn_nav_write_state "$pane_id" baseline_turn_count "$baseline"
   turn_nav_delete_state "$pane_id" current_turn
   turn_nav_delete_state "$pane_id" last_status
+  turn_nav_close_list_pane "$pane_id"
   turn_nav_write_state "$pane_id" active 1
 }
 
 deactivate_cmd() {
   turn_nav_in_tmux || exit 0
   local pane_id=${1:-$(turn_nav_current_pane_id)}
+  turn_nav_close_list_pane "$pane_id"
   turn_nav_clear_pane_state "$pane_id"
 }
 
@@ -39,9 +41,103 @@ bottom_cmd() {
   local pane_id=$1
   turn_nav_delete_state "$pane_id" current_turn
   turn_nav_delete_state "$pane_id" last_status
+  turn_nav_close_list_pane "$pane_id"
   if [[ "$(turn_nav_pane_in_copy_mode "$pane_id")" == "1" ]]; then
     turn_nav_cancel_copy_mode "$pane_id"
   fi
+}
+
+turn_nav_close_list_pane() {
+  local pane_id=$1
+  local list_pane
+  list_pane=$(turn_nav_read_state "$pane_id" list_pane_id "")
+  if [[ -n "$list_pane" ]] && turn_nav_pane_exists "$list_pane"; then
+    turn_nav_kill_pane "$list_pane" || true
+  fi
+  turn_nav_delete_state "$pane_id" list_pane_id
+  turn_nav_delete_state "$pane_id" list_file
+}
+
+turn_nav_label_for_display() {
+  local label=$1
+  local max_width=${TURN_NAV_LABEL_WIDTH:-60}
+  if ((${#label} > max_width)); then
+    printf '%s...\n' "${label:0:max_width}"
+  else
+    printf '%s\n' "$label"
+  fi
+}
+
+turn_nav_render_turn_list() {
+  local pane_id=$1
+  local current=$2
+  local total=$3
+  shift 3
+  local list_file
+  list_file=$(turn_nav_read_state "$pane_id" list_file "")
+  if [[ -z "$list_file" ]]; then
+    list_file="$(turn_nav_pane_dir "$pane_id")/turn-list"
+    turn_nav_write_state "$pane_id" list_file "$list_file"
+  fi
+
+  local max_rows=${TURN_NAV_LIST_MAX_ROWS:-30}
+  local start=1
+  local end=$total
+  if turn_nav_is_nonnegative_integer "$max_rows" && (( total > max_rows )); then
+    start=$((current - (max_rows / 2)))
+    (( start < 1 )) && start=1
+    end=$((start + max_rows - 1))
+    if (( end > total )); then
+      end=$total
+      start=$((end - max_rows + 1))
+      (( start < 1 )) && start=1
+    fi
+  fi
+
+  local record index _line label marker display_label
+  {
+    printf 'Turn %s/%s\n' "$current" "$total"
+    printf '%s\n' '------------'
+    if (( start > 1 )); then
+      printf '  ...\n'
+    fi
+    for record in "$@"; do
+      IFS=$'\t' read -r index _line label <<<"$record"
+      if (( index < start || index > end )); then
+        continue
+      fi
+      marker=" "
+      if (( index == current )); then
+        marker=">"
+      fi
+      display_label=$(turn_nav_label_for_display "$label")
+      printf '%s %s  %s\n' "$marker" "$index" "$display_label"
+    done
+    if (( end < total )); then
+      printf '  ...\n'
+    fi
+  } >"$list_file"
+}
+
+turn_nav_ensure_list_pane() {
+  local pane_id=$1
+  local list_file
+  list_file=$(turn_nav_read_state "$pane_id" list_file "")
+  if [[ -z "$list_file" ]]; then
+    list_file="$(turn_nav_pane_dir "$pane_id")/turn-list"
+    turn_nav_write_state "$pane_id" list_file "$list_file"
+  fi
+
+  local list_pane
+  list_pane=$(turn_nav_read_state "$pane_id" list_pane_id "")
+  if [[ -n "$list_pane" ]] && turn_nav_pane_exists "$list_pane"; then
+    return 0
+  fi
+
+  turn_nav_delete_state "$pane_id" list_pane_id
+  list_pane=$(turn_nav_split_list_pane "$pane_id" "$list_file") || return 0
+  turn_nav_write_state "$pane_id" list_pane_id "$list_pane"
+  turn_nav_select_pane "$pane_id" || true
 }
 
 navigate_cmd() {
@@ -63,21 +159,22 @@ navigate_cmd() {
   baseline=$(turn_nav_read_state "$pane_id" baseline_turn_count 0)
   turn_nav_is_nonnegative_integer "$baseline" || exit 0
 
-  local lines=()
-  while IFS= read -r line; do
-    lines+=("$line")
-  done < <(turn_nav_visible_turn_lines "$content" "$baseline")
-  local total=${#lines[@]}
+  local records=()
+  local record
+  while IFS= read -r record; do
+    records+=("$record")
+  done < <(turn_nav_visible_turn_records "$content" "$baseline")
+  local total=${#records[@]}
   if (( total == 0 && baseline > 0 )); then
     baseline=0
     turn_nav_write_state "$pane_id" baseline_turn_count "$baseline"
     turn_nav_delete_state "$pane_id" current_turn
     turn_nav_delete_state "$pane_id" last_status
-    lines=()
-    while IFS= read -r line; do
-      lines+=("$line")
-    done < <(turn_nav_visible_turn_lines "$content" "$baseline")
-    total=${#lines[@]}
+    records=()
+    while IFS= read -r record; do
+      records+=("$record")
+    done < <(turn_nav_visible_turn_records "$content" "$baseline")
+    total=${#records[@]}
   fi
   if (( total == 0 )); then
     turn_nav_show_message "$pane_id" "No turns found"
@@ -116,6 +213,26 @@ navigate_cmd() {
   status=$(turn_nav_status_text "$new" "$total")
   turn_nav_write_state "$pane_id" current_turn "$new"
   turn_nav_write_state "$pane_id" last_status "$status"
+  turn_nav_render_turn_list "$pane_id" "$new" "$total" "${records[@]}"
+  turn_nav_ensure_list_pane "$pane_id"
+
+  # Creating the side pane changes the source pane width. Re-capture after the
+  # split so copy-mode line numbers match the final layout.
+  content=$(turn_nav_capture_pane "$pane_id")
+  records=()
+  while IFS= read -r record; do
+    records+=("$record")
+  done < <(turn_nav_visible_turn_records "$content" "$baseline")
+  if ((${#records[@]} > 0)); then
+    total=${#records[@]}
+    if ((new > total)); then
+      new=$total
+    fi
+    status=$(turn_nav_status_text "$new" "$total")
+    turn_nav_write_state "$pane_id" current_turn "$new"
+    turn_nav_write_state "$pane_id" last_status "$status"
+    turn_nav_render_turn_list "$pane_id" "$new" "$total" "${records[@]}"
+  fi
 
   if [[ "$new" == "$current" ]]; then
     turn_nav_show_message "$pane_id" "$status"
@@ -126,7 +243,8 @@ navigate_cmd() {
   if ! turn_nav_is_nonnegative_integer "$total_lines"; then
     total_lines=$(printf '%s\n' "$content" | wc -l | tr -d ' ')
   fi
-  local target_line=${lines[$((new - 1))]}
+  local target_line
+  IFS=$'\t' read -r _record_index target_line _record_label <<<"${records[$((new - 1))]}"
   local goto_line=$((total_lines - target_line))
   (( goto_line < 0 )) && goto_line=0
   local top_cursor_down_count history_size

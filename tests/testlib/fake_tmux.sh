@@ -27,6 +27,18 @@ append_action() {
   printf '%s\n' "$*" >>"$(pane_file "$pane_id" actions)"
 }
 
+next_pane_id() {
+  local path="$root/next_pane"
+  local next
+  if [[ -f "$path" ]]; then
+    next=$(cat "$path")
+  else
+    next=2
+  fi
+  printf '%%%s\n' "$next"
+  printf '%s' "$((next + 1))" >"$path"
+}
+
 pane_id_from_args() {
   local pane_id=
   while (($#)); do
@@ -55,6 +67,12 @@ case "$cmd" in
           exit 1
           ;;
       esac
+    elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{pane_id}' ]]; then
+      if [[ -f "$(pane_file "$2" pane_in_mode)" ]]; then
+        printf '%s\n' "$2"
+      else
+        exit 1
+      fi
     elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{pane_in_mode}' ]]; then
       cat "$(pane_file "$2" pane_in_mode)"
     elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{history_size}' ]]; then
@@ -75,6 +93,26 @@ case "$cmd" in
     pane_id=$(pane_id_from_args "$@")
     printf '1' >"$(pane_file "$pane_id" pane_in_mode)"
     append_action "$pane_id" "copy-mode"
+    ;;
+  split-window)
+    pane_id=$(pane_id_from_args "$@")
+    new_pane=$(next_pane_id)
+    printf '' >"$(pane_file "$new_pane" content)"
+    printf '0' >"$(pane_file "$new_pane" pane_in_mode)"
+    printf '0' >"$(pane_file "$new_pane" history_size)"
+    printf '0' >"$(pane_file "$new_pane" cursor_y)"
+    append_action "$pane_id" "split-window $new_pane"
+    append_action "$new_pane" "list-pane-command"
+    printf '%s\n' "$new_pane"
+    ;;
+  select-pane)
+    pane_id=$(pane_id_from_args "$@")
+    append_action "$pane_id" "select-pane"
+    ;;
+  kill-pane)
+    pane_id=$(pane_id_from_args "$@")
+    append_action "$pane_id" "kill-pane"
+    rm -f "$(pane_file "$pane_id" content)" "$(pane_file "$pane_id" pane_in_mode)" "$(pane_file "$pane_id" history_size)" "$(pane_file "$pane_id" cursor_y)"
     ;;
   set-option|source-file)
     ;;

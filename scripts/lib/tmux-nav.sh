@@ -10,6 +10,11 @@ turn_nav_pane_in_copy_mode() {
   "$(turn_nav_tmux_bin)" display-message -t "$pane_id" -p '#{pane_in_mode}'
 }
 
+turn_nav_pane_exists() {
+  local pane_id=$1
+  "$(turn_nav_tmux_bin)" display-message -t "$pane_id" -p '#{pane_id}' >/dev/null 2>&1
+}
+
 turn_nav_history_size() {
   local pane_id=$1
   "$(turn_nav_tmux_bin)" display-message -t "$pane_id" -p '#{history_size}'
@@ -33,6 +38,33 @@ turn_nav_enter_copy_mode() {
 turn_nav_cancel_copy_mode() {
   local pane_id=$1
   "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X cancel
+}
+
+turn_nav_select_pane() {
+  local pane_id=$1
+  "$(turn_nav_tmux_bin)" select-pane -t "$pane_id"
+}
+
+turn_nav_shell_quote() {
+  local value=$1
+  printf "'"
+  printf '%s' "$value" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+turn_nav_split_list_pane() {
+  local pane_id=$1
+  local list_file=$2
+  local width=${TURN_NAV_LIST_WIDTH:-32}
+  local quoted_file command
+  quoted_file=$(turn_nav_shell_quote "$list_file")
+  command="while :; do clear; cat $quoted_file 2>/dev/null; sleep 0.2; done"
+  "$(turn_nav_tmux_bin)" split-window -t "$pane_id" -h -l "$width" -d -P -F '#{pane_id}' "$command"
+}
+
+turn_nav_kill_pane() {
+  local pane_id=$1
+  "$(turn_nav_tmux_bin)" kill-pane -t "$pane_id"
 }
 
 turn_nav_show_message() {

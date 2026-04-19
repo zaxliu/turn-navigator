@@ -31,6 +31,16 @@ assert_file_not_contains() {
   fi
 }
 
+assert_contains() {
+  local haystack=$1
+  local needle=$2
+  local message=$3
+  if ! printf '%s\n' "$haystack" | grep -Fq "$needle"; then
+    printf 'ASSERTION FAILED: %s\nexpected to find: [%s]\nin:\n%s\n' "$message" "$needle" "$haystack" >&2
+    exit 1
+  fi
+}
+
 assert_empty() {
   local actual=$1
   local message=$2
@@ -132,6 +142,15 @@ test_baseline_is_clamped_by_visible_turn_count() {
   local actual
   actual=$(turn_nav_visible_turn_lines "$content" 5 | wc -l | tr -d ' ')
   assert_eq "0" "$actual" "baseline should clamp to visible completed turn count"
+}
+
+test_visible_turn_records_include_prompt_labels() {
+  setup_case
+  source "$ROOT/scripts/lib/parse-turns.sh"
+  local content actual
+  content=$'› first request\nanswer\n› second request with more detail\nanswer\n› '
+  actual=$(turn_nav_visible_turn_records "$content" 0 | tr '\t' '|')
+  assert_eq $'1|1|first request\n2|3|second request with more detail' "$actual" "visible turn records should include index, line, and prompt label"
 }
 
 test_invalid_prompt_pattern_is_treated_as_zero_matches() {
@@ -247,6 +266,89 @@ test_navigation_issues_tmux_actions() {
     "send-keys start-of-line" \
     "send-keys select-line"
   assert_pane_actions_not "%1" "$actions" "send-keys search-backward"
+}
+
+test_navigation_opens_and_renders_turn_list_pane() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+
+  turn_nav_cmd navigate up 1 %1
+
+  local list_pane list_file list_content source_actions list_actions
+  list_pane=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/list_pane_id")
+  list_file=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/list_file")
+  list_content=$(cat "$list_file")
+  source_actions=$(fake_tmux_read_pane_actions "%1")
+  list_actions=$(fake_tmux_read_pane_actions "$list_pane")
+
+  assert_eq "%2" "$list_pane" "navigation should record the created list pane id"
+  assert_contains "$list_content" "Turn 3/3" "list should show current progress"
+  assert_contains "$list_content" "  1  one" "list should show older turns"
+  assert_contains "$list_content" "> 3  three" "list should highlight the current turn"
+  assert_pane_actions "%1" "$source_actions" "split-window %2" "select-pane"
+  assert_pane_actions "$list_pane" "$list_actions" "list-pane-command"
+}
+
+test_navigation_updates_existing_turn_list_pane_highlight() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+
+  turn_nav_cmd navigate up 1 %1
+  turn_nav_cmd navigate up 1 %1
+
+  local list_pane list_file list_content source_actions
+  list_pane=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/list_pane_id")
+  list_file=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/list_file")
+  list_content=$(cat "$list_file")
+  source_actions=$(fake_tmux_read_pane_actions "%1")
+
+  assert_eq "%2" "$list_pane" "second navigation should reuse the existing list pane"
+  assert_contains "$list_content" "Turn 2/3" "list should update current progress"
+  assert_contains "$list_content" "> 2  two" "list should move the highlighted turn"
+  assert_action_count "1" "$source_actions" "split-window %2"
+}
+
+test_bottom_closes_turn_list_pane() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ ' 0
+  turn_nav_cmd navigate up 1 %1
+
+  turn_nav_cmd bottom %1
+
+  local actions list_state_exists
+  actions=$(fake_tmux_read_pane_actions "%2")
+  list_state_exists=$(find "$TURN_NAV_STATE_ROOT/session-1/%1" -name list_pane_id -print | wc -l | tr -d ' ')
+  assert_eq "0" "$list_state_exists" "bottom should clear the list pane id state"
+  assert_pane_actions "%2" "$actions" "kill-pane"
+}
+
+test_deactivate_closes_turn_list_pane() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ ' 0
+  turn_nav_cmd navigate up 1 %1
+
+  turn_nav_cmd deactivate %1
+
+  local actions pane_exists
+  actions=$(fake_tmux_read_pane_actions "%2")
+  pane_exists=$(find "$TURN_NAV_STATE_ROOT/session-1" -maxdepth 1 -type d -name '%1' | wc -l | tr -d ' ')
+  assert_eq "0" "$pane_exists" "deactivate should clear the source pane state directory"
+  assert_pane_actions "%2" "$actions" "kill-pane"
+}
+
+test_stale_turn_list_pane_is_replaced() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+  turn_nav_cmd navigate up 1 %1
+  rm -f "$FAKE_TMUX_ROOT/panes/%2.pane_in_mode"
+
+  turn_nav_cmd navigate up 1 %1
+
+  local list_pane source_actions
+  list_pane=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/list_pane_id")
+  source_actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "%3" "$list_pane" "navigation should replace a stale list pane id"
+  assert_pane_actions "%1" "$source_actions" "split-window %2" "split-window %3"
 }
 
 test_navigation_does_not_search_backward_from_exact_prompt_line() {
@@ -530,7 +632,10 @@ test_readme_documents_static_tmux_installation() {
   assert_file_contains "$ROOT/README.md" 'Claude Code automatic activation'
   assert_file_contains "$ROOT/README.md" 'Codex CLI prompt lines are supported by the default pattern'
   assert_file_contains "$ROOT/README.md" 'For non-Claude workflows, the static tmux bindings can lazily activate a pane'
+  # shellcheck disable=SC2016
   assert_file_contains "$ROOT/README.md" 'cleaned up by `scripts/turn-nav deactivate`'
+  assert_file_contains "$ROOT/README.md" 'temporary right-side turn list pane'
+  assert_file_contains "$ROOT/README.md" 'tmux popups pause updates to the underlying pane'
   assert_file_not_contains "$ROOT/README.md" 'Turn Navigator hooks installed in Claude Code'
   assert_file_not_contains "$ROOT/README.md" 'cleaned up when the pane session ends'
 }
@@ -538,11 +643,13 @@ test_readme_documents_static_tmux_installation() {
 test_help_skill_mentions_tmux_binding_requirement() {
   assert_file_contains "$ROOT/skills/help/SKILL.md" 'Claude Code installs tmux bindings automatically on SessionStart'
   assert_file_contains "$ROOT/skills/help/SKILL.md" 'Warning: tmux not detected or bindings not installed.'
+  assert_file_contains "$ROOT/skills/help/SKILL.md" 'opens a temporary right-side turn list pane'
 }
 
 run_all() {
   test_completed_turns_exclude_live_prompt
   test_baseline_is_clamped_by_visible_turn_count
+  test_visible_turn_records_include_prompt_labels
   test_invalid_prompt_pattern_is_treated_as_zero_matches
   test_default_prompt_pattern_does_not_match_claude_status_lines
   test_claude_banner_limits_turns_to_current_session
@@ -552,6 +659,11 @@ run_all() {
   test_activate_records_pane_baseline
   test_deactivate_clears_only_pane_state
   test_navigation_issues_tmux_actions
+  test_navigation_opens_and_renders_turn_list_pane
+  test_navigation_updates_existing_turn_list_pane_highlight
+  test_bottom_closes_turn_list_pane
+  test_deactivate_closes_turn_list_pane
+  test_stale_turn_list_pane_is_replaced
   test_navigation_does_not_search_backward_from_exact_prompt_line
   test_navigation_uses_tmux_cursor_bottom_not_capture_footer
   test_navigation_adjusts_cursor_when_target_is_on_history_top_page

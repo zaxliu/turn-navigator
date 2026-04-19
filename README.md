@@ -21,6 +21,7 @@ Works with both **Claude Code** (`❯`) and **Codex CLI** (`›`).
 | q / Escape | Exit browse mode |
 
 A turn counter (for example `Turn 3/12`) appears in the status bar while browsing.
+The first navigation keypress also opens a temporary right-side turn list pane. The list shows the completed turns in the current session as `number + prompt first line`, and the highlighted row follows `Shift+Up/Down` and `Alt+Up/Down` as the main pane jumps.
 
 ## Installation
 
@@ -80,7 +81,9 @@ Codex CLI prompt lines are supported by the default pattern. Codex-only workflow
 2. tmux bindings stay static after install and call `scripts/turn-nav navigate`
 3. If pane state is missing or activation hid all existing scrollback, the first navigation keypress initializes state for that pane
 4. **SessionEnd** calls `scripts/turn-nav deactivate` to clear only the current pane state
-5. **Shift+Up/Down** enters tmux copy-mode and jumps between completed user prompt lines
+5. **Shift+Up/Down** enters tmux copy-mode, jumps between completed user prompt lines, and keeps the temporary right-side turn list pane in sync
+
+The list is implemented as a temporary tmux pane instead of a popup because tmux popups pause updates to the underlying pane while they are open. A side pane lets the main pane and the turn list update together. `Ctrl+G`, `q`, `Escape`, and `deactivate` close the list pane and clear pane-local list state.
 
 Pane-local state is stored in `/tmp/turn-nav/<tmux_session_id>/<pane_id>/` and cleaned up by `scripts/turn-nav deactivate`, which Claude Code runs from the `SessionEnd` hook.
 
