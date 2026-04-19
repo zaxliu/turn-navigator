@@ -25,21 +25,51 @@ The first navigation keypress also opens a temporary right-side turn list pane. 
 
 ## Installation
 
-Install the Claude Code plugin:
+### Claude Code from GitHub
+
+Add this repository as a Claude Code marketplace:
 
 ```bash
-/plugin install turn-navigator
+claude plugin marketplace add https://github.com/zaxliu/turn-navigator.git
 ```
 
-Or install from this repository:
+Install the plugin from that marketplace:
+
+```bash
+claude plugin install turn-navigator@turn-navigator-local
+```
+
+To install only for the current project instead of globally:
+
+```bash
+claude plugin marketplace add --scope project https://github.com/zaxliu/turn-navigator.git
+claude plugin install --scope project turn-navigator@turn-navigator-local
+```
+
+Verify that Claude Code sees the marketplace and plugin:
+
+```bash
+claude plugin marketplace list
+claude plugin list
+```
+
+Claude Code installs the tmux bindings automatically on SessionStart, then activates the current pane.
+If the plugin is loaded into an existing Claude Code session, the first navigation keypress also lazily activates that pane and includes existing scrollback turns.
+
+If you installed into an already-running Claude Code session, restart that Claude Code session so the SessionStart hook can install the tmux bindings. In Claude Code you can also run `/plugin list` to confirm `turn-navigator` is enabled.
+
+### Local development install
+
+For a local checkout:
 
 ```bash
 claude plugin marketplace add /absolute/path/to/turn_navigator
 claude plugin install turn-navigator@turn-navigator-local
 ```
 
-Claude Code installs the tmux bindings automatically on SessionStart, then activates the current pane.
-If the plugin is loaded into an existing Claude Code session, the first navigation keypress also lazily activates that pane and includes existing scrollback turns.
+If the checkout moves, remove and re-add the marketplace so Claude Code points at the new path.
+
+### Manual tmux install
 
 For manual install or non-Claude workflows, source the tmux bindings from this repository checkout:
 
