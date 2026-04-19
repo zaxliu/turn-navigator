@@ -72,6 +72,8 @@ case "$cmd" in
     printf '1' >"$(pane_file "$pane_id" pane_in_mode)"
     append_action "$pane_id" "copy-mode"
     ;;
+  set-option|source-file)
+    ;;
   send-keys)
     pane_id=$(pane_id_from_args "$@")
     action=${4:-}

@@ -7,7 +7,6 @@ Works with both **Claude Code** (`❯`) and **Codex CLI** (`›`).
 ## Requirements
 
 - tmux
-- Turn Navigator tmux bindings sourced into your tmux config
 - Claude Code automatic activation requires the plugin hooks installed in Claude Code
 
 ## Keybindings
@@ -38,7 +37,9 @@ Or install from this repository:
 /plugin install turn-navigator@<marketplace>
 ```
 
-Then source the tmux bindings from this repository checkout:
+Claude Code installs the tmux bindings automatically on SessionStart, then activates the current pane.
+
+For manual install or non-Claude workflows, source the tmux bindings from this repository checkout:
 
 ```bash
 tmux source-file tmux/turn-nav.conf
@@ -73,7 +74,7 @@ Codex CLI prompt lines are supported by the default pattern. Codex-only workflow
 
 ## How it works
 
-1. **SessionStart** calls `scripts/turn-nav activate` to mark the current pane active
+1. **SessionStart** calls `scripts/setup-nav.sh`, which installs the tmux bindings and marks the current pane active
 2. tmux bindings stay static after install and call `scripts/turn-nav navigate`
 3. **SessionEnd** calls `scripts/turn-nav deactivate` to clear only the current pane state
 4. **Shift+Up/Down** enters tmux copy-mode and jumps between completed user prompt lines

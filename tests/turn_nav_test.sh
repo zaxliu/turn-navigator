@@ -73,6 +73,15 @@ cleanup_tmux_config_case() {
   fi
 }
 
+tmux_socket_wrapper() {
+  local wrapper=$1
+  cat >"$wrapper" <<'EOF'
+#!/usr/bin/env bash
+exec tmux -L "$TURN_NAV_TMUX_SOCKET" "$@"
+EOF
+  chmod +x "$wrapper"
+}
+
 assert_pane_actions() {
   local pane_id=$1
   local actions=$2
@@ -349,11 +358,37 @@ test_static_tmux_config_status_right_is_idempotent() {
   assert_eq 'BASE#{?pane_in_mode,#[fg=colour0,bg=colour39,bold] #(sh -c "#{@turn_nav_root}/scripts/turn-nav status #{pane_id}") #[default],}' "$status_right" "tmux config should preserve existing status-right content and append the segment once"
 }
 
+test_install_tmux_subcommand_loads_static_bindings_for_current_plugin_root() {
+  setup_tmux_config_case
+  TEST_TMPDIR=$(mktemp -d)
+  tmux_socket_wrapper "$TEST_TMPDIR/tmux"
+
+  TMUX=1 TMUX_BIN="$TEST_TMPDIR/tmux" turn_nav_cmd install-tmux
+
+  local root status_right binding
+  root=$(tmux_config_cmd show-option -gv @turn_nav_root)
+  status_right=$(tmux_config_cmd show-option -gv status-right)
+  binding=$(tmux_config_cmd list-keys -T root S-Up)
+  cleanup_tmux_config_case
+
+  assert_eq "$ROOT" "$root" "install-tmux should point @turn_nav_root at the current plugin checkout"
+  assert_file_contains "$ROOT/hooks/hooks.json" 'scripts/setup-nav.sh'
+  if ! printf '%s\n' "$status_right" | grep -Fq 'scripts/turn-nav status #{pane_id}'; then
+    printf 'ASSERTION FAILED: install-tmux should install status segment\nstatus-right: [%s]\n' "$status_right" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$binding" | grep -Fq 'scripts/turn-nav navigate up 1 #{pane_id}'; then
+    printf 'ASSERTION FAILED: install-tmux should install root S-Up binding\nbinding: [%s]\n' "$binding" >&2
+    exit 1
+  fi
+}
+
 test_readme_documents_static_tmux_installation() {
   assert_file_contains "$ROOT/README.md" 'tmux source-file tmux/turn-nav.conf'
   assert_file_contains "$ROOT/README.md" '@turn_nav_root'
   assert_file_contains "$ROOT/README.md" '/tmp/turn-nav/<tmux_session_id>/<pane_id>/'
   assert_file_contains "$ROOT/README.md" 'tmux bindings stay static after install'
+  assert_file_contains "$ROOT/README.md" 'Claude Code installs the tmux bindings automatically on SessionStart'
   assert_file_contains "$ROOT/README.md" 'Claude Code automatic activation'
   assert_file_contains "$ROOT/README.md" 'Codex CLI prompt lines are supported by the default pattern'
   assert_file_contains "$ROOT/README.md" 'For non-Claude workflows, activate the pane before navigating'
@@ -363,7 +398,7 @@ test_readme_documents_static_tmux_installation() {
 }
 
 test_help_skill_mentions_tmux_binding_requirement() {
-  assert_file_contains "$ROOT/skills/help/SKILL.md" 'tmux bindings are installed'
+  assert_file_contains "$ROOT/skills/help/SKILL.md" 'Claude Code installs tmux bindings automatically on SessionStart'
   assert_file_contains "$ROOT/skills/help/SKILL.md" 'Warning: tmux not detected or bindings not installed.'
 }
 
@@ -387,6 +422,7 @@ run_all() {
   test_static_tmux_config_preserves_preconfigured_root
   test_static_tmux_config_sets_default_root_when_unset
   test_static_tmux_config_status_right_is_idempotent
+  test_install_tmux_subcommand_loads_static_bindings_for_current_plugin_root
   test_readme_documents_static_tmux_installation
   test_help_skill_mentions_tmux_binding_requirement
 }

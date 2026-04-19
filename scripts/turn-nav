@@ -2,9 +2,16 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+PLUGIN_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 source "$SCRIPT_DIR/lib/state.sh"
 source "$SCRIPT_DIR/lib/parse-turns.sh"
 source "$SCRIPT_DIR/lib/tmux-nav.sh"
+
+install_tmux_cmd() {
+  turn_nav_in_tmux || exit 0
+  "$(turn_nav_tmux_bin)" set-option -gq @turn_nav_root "$PLUGIN_ROOT"
+  "$(turn_nav_tmux_bin)" source-file "$PLUGIN_ROOT/tmux/turn-nav.conf"
+}
 
 activate_cmd() {
   turn_nav_in_tmux || exit 0
@@ -120,13 +127,14 @@ status_cmd() {
 main() {
   local command=${1:-}
   case "$command" in
+    install-tmux) shift; install_tmux_cmd "$@" ;;
     activate) shift; activate_cmd "$@" ;;
     deactivate) shift; deactivate_cmd "$@" ;;
     navigate) shift; navigate_cmd "$@" ;;
     bottom) shift; bottom_cmd "$@" ;;
     status) shift; status_cmd "$@" ;;
     *)
-      printf 'usage: %s {activate|deactivate|navigate|bottom|status}\n' "$0" >&2
+      printf 'usage: %s {install-tmux|activate|deactivate|navigate|bottom|status}\n' "$0" >&2
       exit 1
       ;;
   esac
