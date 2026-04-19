@@ -41,6 +41,7 @@ assert_empty() {
 }
 
 setup_case() {
+  unset TURN_NAV_PATTERN
   export TEST_TMPDIR
   TEST_TMPDIR=$(mktemp -d)
   export TMUX=1
@@ -122,6 +123,15 @@ test_invalid_prompt_pattern_is_treated_as_zero_matches() {
   assert_empty "$stderr" "invalid prompt pattern should not leak grep diagnostics"
 }
 
+test_default_prompt_pattern_does_not_match_claude_status_lines() {
+  setup_case
+  source "$ROOT/scripts/lib/parse-turns.sh"
+  local content actual
+  content=$'› first\nanswer\n• Ran command\n─ Worked for 1m\n  ❯ quoted prompt\n❯ second\nanswer\n› '
+  actual=$(turn_nav_completed_turn_lines "$content" | tr '\n' ',' | sed 's/,$//')
+  assert_eq "1,6" "$actual" "default prompt pattern should not match Claude status, separator, or quoted prompt lines"
+}
+
 test_corrupt_numeric_navigation_state_does_not_abort() {
   setup_case
   fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ ' 0
@@ -196,7 +206,7 @@ test_navigation_issues_tmux_actions() {
     "copy-mode" \
     "send-keys goto-line 2" \
     "send-keys start-of-line" \
-    "send-keys search-backward ^[❯›]" \
+    "send-keys search-backward ^(❯|›)" \
     "send-keys select-line"
 }
 
@@ -251,7 +261,7 @@ test_stale_current_turn_is_clamped_before_navigation() {
   assert_eq "⇅ Turn 1/1" "$status" "status should reflect the clamped visible turn"
   assert_pane_actions "%1" "$actions" \
     "send-keys goto-line 2" \
-    "send-keys search-backward ^[❯›]" \
+    "send-keys search-backward ^(❯|›)" \
     "send-keys select-line"
 }
 
@@ -271,7 +281,7 @@ test_copy_mode_without_current_turn_uses_bottom_sentinel() {
   assert_eq "⇅ Turn 2/2" "$status" "first up from copy mode should land on the newest visible turn"
   assert_pane_actions "%1" "$actions" \
     "send-keys goto-line 2" \
-    "send-keys search-backward ^[❯›]" \
+    "send-keys search-backward ^(❯|›)" \
     "send-keys select-line"
 }
 
@@ -430,6 +440,7 @@ run_all() {
   test_completed_turns_exclude_live_prompt
   test_baseline_is_clamped_by_visible_turn_count
   test_invalid_prompt_pattern_is_treated_as_zero_matches
+  test_default_prompt_pattern_does_not_match_claude_status_lines
   test_corrupt_numeric_navigation_state_does_not_abort
   test_corrupt_baseline_state_is_treated_as_inactive_navigation
   test_activate_records_pane_baseline

@@ -15,7 +15,7 @@ Show the turn-navigator keybinding table:
 | q | Exit browse mode |
 
 Then check $TMUX env var:
-- If set: "Turn Navigator is available. Claude Code installs tmux bindings automatically on SessionStart. Search pattern: ${TURN_NAV_PATTERN:-^[❯›]}"
+- If set: "Turn Navigator is available. Claude Code installs tmux bindings automatically on SessionStart. Search pattern: ${TURN_NAV_PATTERN:-^(❯|›)}"
 - If empty: "Warning: tmux not detected or bindings not installed."
 
 Keep it brief.

@@ -70,7 +70,7 @@ Set `TURN_NAV_PATTERN` to customize the prompt pattern:
 export TURN_NAV_PATTERN="^MyPrompt>"
 ```
 
-Default pattern matches both Claude Code and Codex CLI prompts: `^[❯›]`
+Default pattern matches both Claude Code and Codex CLI prompts: `^(❯|›)`
 
 Codex CLI prompt lines are supported by the default pattern. Codex-only workflows can rely on lazy activation from the first navigation keypress, or use a wrapper that calls `scripts/turn-nav activate` / `scripts/turn-nav deactivate`.
 

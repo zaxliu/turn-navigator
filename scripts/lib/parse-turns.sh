@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 turn_nav_prompt_pattern() {
-  printf '%s\n' "${TURN_NAV_PATTERN:-^[❯›]}"
+  printf '%s\n' "${TURN_NAV_PATTERN:-^(❯|›)}"
 }
 
 turn_nav_completed_turn_lines() {
