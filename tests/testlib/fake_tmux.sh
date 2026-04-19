@@ -77,6 +77,8 @@ case "$cmd" in
       cat "$(pane_file "$2" pane_in_mode)"
     elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{history_size}' ]]; then
       cat "$(pane_file "$2" history_size)"
+    elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{pane_height}' ]]; then
+      cat "$(pane_file "$2" pane_height)"
     elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{cursor_y}' ]]; then
       cat "$(pane_file "$2" cursor_y)"
     elif [[ ${1:-} == "-t" ]]; then
@@ -101,6 +103,7 @@ case "$cmd" in
     printf '0' >"$(pane_file "$new_pane" pane_in_mode)"
     printf '0' >"$(pane_file "$new_pane" history_size)"
     printf '0' >"$(pane_file "$new_pane" cursor_y)"
+    printf '3' >"$(pane_file "$new_pane" pane_height)"
     append_action "$pane_id" "split-window $new_pane"
     append_action "$new_pane" "list-pane-command"
     printf '%s\n' "$new_pane"
@@ -162,6 +165,13 @@ fake_tmux_set_pane_position() {
   mkdir -p "${FAKE_TMUX_ROOT}/panes"
   printf '%s' "$history_size" >"${FAKE_TMUX_ROOT}/panes/${pane}.history_size"
   printf '%s' "$cursor_y" >"${FAKE_TMUX_ROOT}/panes/${pane}.cursor_y"
+}
+
+fake_tmux_set_pane_height() {
+  local pane=$1
+  local pane_height=$2
+  mkdir -p "${FAKE_TMUX_ROOT}/panes"
+  printf '%s' "$pane_height" >"${FAKE_TMUX_ROOT}/panes/${pane}.pane_height"
 }
 
 fake_tmux_read_pane_actions() {

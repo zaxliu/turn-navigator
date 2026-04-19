@@ -126,6 +126,19 @@ assert_action_count() {
   assert_eq "$expected" "$actual" "expected [$needle] action count"
 }
 
+assert_action_after() {
+  local actions=$1
+  local first=$2
+  local second=$3
+  local first_line second_line
+  first_line=$(printf '%s\n' "$actions" | grep -nFx "$first" | tail -1 | cut -d: -f1 || true)
+  second_line=$(printf '%s\n' "$actions" | grep -nFx "$second" | tail -1 | cut -d: -f1 || true)
+  if [[ -z "$first_line" || -z "$second_line" || "$second_line" -le "$first_line" ]]; then
+    printf 'ASSERTION FAILED: expected action [%s] after [%s]\nactions:\n%s\n' "$second" "$first" "$actions" >&2
+    exit 1
+  fi
+}
+
 test_completed_turns_exclude_live_prompt() {
   setup_case
   source "$ROOT/scripts/lib/parse-turns.sh"
@@ -266,6 +279,31 @@ test_navigation_issues_tmux_actions() {
     "send-keys start-of-line" \
     "send-keys select-line"
   assert_pane_actions_not "%1" "$actions" "send-keys search-backward"
+}
+
+test_navigation_returns_to_line_start_after_selecting_line() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two with a long prompt that may wrap in copy mode\nanswer\n❯ ' 0
+
+  turn_nav_cmd navigate up 1 %1
+
+  local actions
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_action_after "$actions" "send-keys select-line" "send-keys start-of-line"
+}
+
+test_first_navigation_searches_prompt_when_cursor_is_above_pane_bottom() {
+  setup_case
+  fake_tmux_write_pane "%1" $'intro\nmore intro\n❯ newest completed\nanswer line 1\nanswer line 2\n❯\nfooter 1\nfooter 2\nfooter 3\nfooter 4' 0
+  fake_tmux_set_pane_position "%1" 7 0
+  fake_tmux_set_pane_height "%1" 5
+
+  turn_nav_cmd navigate up 1 %1
+
+  local actions
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward newest completed"
+  assert_pane_actions_not "%1" "$actions" "send-keys goto-line 5"
 }
 
 test_navigation_opens_and_renders_turn_list_pane() {
@@ -659,6 +697,8 @@ run_all() {
   test_activate_records_pane_baseline
   test_deactivate_clears_only_pane_state
   test_navigation_issues_tmux_actions
+  test_navigation_returns_to_line_start_after_selecting_line
+  test_first_navigation_searches_prompt_when_cursor_is_above_pane_bottom
   test_navigation_opens_and_renders_turn_list_pane
   test_navigation_updates_existing_turn_list_pane_highlight
   test_bottom_closes_turn_list_pane

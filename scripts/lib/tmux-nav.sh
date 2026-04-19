@@ -20,11 +20,26 @@ turn_nav_history_size() {
   "$(turn_nav_tmux_bin)" display-message -t "$pane_id" -p '#{history_size}'
 }
 
+turn_nav_pane_height() {
+  local pane_id=$1
+  "$(turn_nav_tmux_bin)" display-message -t "$pane_id" -p '#{pane_height}'
+}
+
+turn_nav_cursor_y() {
+  local pane_id=$1
+  "$(turn_nav_tmux_bin)" display-message -t "$pane_id" -p '#{cursor_y}'
+}
+
 turn_nav_effective_bottom_line() {
   local pane_id=$1
-  local history_size cursor_y
+  local history_size pane_height cursor_y
   history_size=$(turn_nav_history_size "$pane_id")
-  cursor_y=$("$(turn_nav_tmux_bin)" display-message -t "$pane_id" -p '#{cursor_y}')
+  pane_height=$(turn_nav_pane_height "$pane_id" 2>/dev/null || true)
+  if turn_nav_is_nonnegative_integer "$history_size" && turn_nav_is_nonnegative_integer "$pane_height" && (( pane_height >= 2 )); then
+    printf '%s\n' "$((history_size + pane_height - 2))"
+    return 0
+  fi
+  cursor_y=$(turn_nav_cursor_y "$pane_id")
   if turn_nav_is_nonnegative_integer "$history_size" && turn_nav_is_nonnegative_integer "$cursor_y"; then
     printf '%s\n' "$((history_size + cursor_y + 1))"
   fi
@@ -77,7 +92,13 @@ turn_nav_jump_to_line() {
   local pane_id=$1
   local goto_line=$2
   local top_cursor_down_count=${3:-}
-  "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X goto-line "$goto_line"
+  local search_text=${4:-}
+  if [[ -n "$search_text" ]]; then
+    "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X goto-line 0
+    "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X search-backward "$search_text"
+  else
+    "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X goto-line "$goto_line"
+  fi
   "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X start-of-line
   if [[ -n "$top_cursor_down_count" ]] && turn_nav_is_nonnegative_integer "$top_cursor_down_count"; then
     "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X top-line
@@ -88,6 +109,7 @@ turn_nav_jump_to_line() {
   fi
   "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X start-of-line
   "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X select-line
+  "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X start-of-line
 }
 
 turn_nav_status_text() {
