@@ -12,13 +12,34 @@ turn_nav_claude_session_boundary_line() {
     cut -d: -f1 || true
 }
 
+turn_nav_codex_session_boundary_line() {
+  local content=$1
+  printf '%s\n' "$content" |
+    grep -nE '^[[:space:]]*│ >_ OpenAI Codex \(v[0-9]' 2>/dev/null |
+    tail -1 |
+    cut -d: -f1 || true
+}
+
+turn_nav_session_boundary_line() {
+  local content=$1
+  local claude_boundary codex_boundary
+  claude_boundary=$(turn_nav_claude_session_boundary_line "$content")
+  codex_boundary=$(turn_nav_codex_session_boundary_line "$content")
+  claude_boundary=${claude_boundary:-0}
+  codex_boundary=${codex_boundary:-0}
+  if (( codex_boundary > claude_boundary )); then
+    printf '%s\n' "$codex_boundary"
+  else
+    printf '%s\n' "$claude_boundary"
+  fi
+}
+
 turn_nav_completed_turn_lines() {
   local content=$1
   local pattern
   pattern=$(turn_nav_prompt_pattern)
   local boundary
-  boundary=$(turn_nav_claude_session_boundary_line "$content")
-  boundary=${boundary:-0}
+  boundary=$(turn_nav_session_boundary_line "$content")
   local lines=()
   while IFS= read -r line; do
     if (( line > boundary )); then

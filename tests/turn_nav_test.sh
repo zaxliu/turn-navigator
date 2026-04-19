@@ -162,6 +162,15 @@ test_claude_banner_limits_turns_to_current_session() {
   assert_eq "9,11" "$actual" "Claude banner should exclude shell prompts before the current Claude session"
 }
 
+test_codex_banner_limits_turns_to_current_session() {
+  setup_case
+  source "$ROOT/scripts/lib/parse-turns.sh"
+  local content actual
+  content=$'❯ cd ../frameworks/autokernel\n❯ codex\n╭────────────────────────╮\n│ >_ OpenAI Codex (v0.121.0) │\n╰────────────────────────╯\n› ^C%\n❯\n❯ codex resume\n╭────────────────────────╮\n│ >_ OpenAI Codex (v0.121.0) │\n╰────────────────────────╯\n› 最近在聊什么\nanswer\n› /learn\nlearned\n› '
+  actual=$(turn_nav_visible_turn_lines "$content" 0 | tr '\n' ',' | sed 's/,$//')
+  assert_eq "12,14" "$actual" "Codex banner should exclude shell prompts and interrupted prior Codex sessions"
+}
+
 test_corrupt_numeric_navigation_state_does_not_abort() {
   setup_case
   fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ ' 0
@@ -359,6 +368,27 @@ test_copy_mode_without_current_turn_uses_bottom_sentinel() {
   assert_pane_actions_not "%1" "$actions" "send-keys search-backward"
 }
 
+test_codex_resume_session_ignores_activation_baseline_before_banner() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ cd ../frameworks/autokernel\n❯ codex\n╭────────────────────────╮\n│ >_ OpenAI Codex (v0.121.0) │\n╰────────────────────────╯\n› ^C%\n❯\n❯ codex resume\n╭────────────────────────╮\n│ >_ OpenAI Codex (v0.121.0) │\n╰────────────────────────╯\n› first resumed turn\nanswer\n› second resumed turn\nanswer\n› third resumed turn\nanswer\n› ' 0
+  turn_nav_cmd activate
+  printf '6' >"$TURN_NAV_STATE_ROOT/session-1/%1/baseline_turn_count"
+  printf '2' >"$TURN_NAV_STATE_ROOT/session-1/%1/current_turn"
+  printf '⇅ Turn 2/2' >"$TURN_NAV_STATE_ROOT/session-1/%1/last_status"
+
+  turn_nav_cmd navigate up 1 %1
+
+  local baseline current status actions
+  baseline=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/baseline_turn_count")
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  status=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/last_status")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "0" "$baseline" "session boundary should clamp stale activation baseline to the current Codex session"
+  assert_eq "3" "$current" "navigation should include all completed turns in the resumed Codex session"
+  assert_eq "⇅ Turn 3/3" "$status" "status should count the full resumed Codex session"
+  assert_pane_actions "%1" "$actions" "copy-mode" "send-keys goto-line 2" "send-keys select-line"
+}
+
 test_two_panes_keep_navigation_state_isolated() {
   setup_case
   fake_tmux_write_pane "%1" $'❯ pane one old\nanswer\n❯ ' 0
@@ -516,6 +546,7 @@ run_all() {
   test_invalid_prompt_pattern_is_treated_as_zero_matches
   test_default_prompt_pattern_does_not_match_claude_status_lines
   test_claude_banner_limits_turns_to_current_session
+  test_codex_banner_limits_turns_to_current_session
   test_corrupt_numeric_navigation_state_does_not_abort
   test_corrupt_baseline_state_is_treated_as_inactive_navigation
   test_activate_records_pane_baseline
@@ -528,6 +559,7 @@ run_all() {
   test_first_navigation_after_activation_can_use_existing_scrollback
   test_stale_current_turn_is_clamped_before_navigation
   test_copy_mode_without_current_turn_uses_bottom_sentinel
+  test_codex_resume_session_ignores_activation_baseline_before_banner
   test_two_panes_keep_navigation_state_isolated
   test_legacy_shims_delegate_to_turn_nav
   test_navigate_shim_delegates_to_turn_nav

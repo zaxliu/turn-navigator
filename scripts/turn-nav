@@ -65,9 +65,11 @@ navigate_cmd() {
     lines+=("$line")
   done < <(turn_nav_visible_turn_lines "$content" "$baseline")
   local total=${#lines[@]}
-  if (( total == 0 && baseline > 0 )) && [[ -z "$(turn_nav_read_state "$pane_id" current_turn "")" ]]; then
+  if (( total == 0 && baseline > 0 )); then
     baseline=0
     turn_nav_write_state "$pane_id" baseline_turn_count "$baseline"
+    turn_nav_delete_state "$pane_id" current_turn
+    turn_nav_delete_state "$pane_id" last_status
     lines=()
     while IFS= read -r line; do
       lines+=("$line")
