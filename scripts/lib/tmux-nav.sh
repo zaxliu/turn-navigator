@@ -34,14 +34,14 @@ turn_nav_effective_bottom_line() {
   local pane_id=$1
   local history_size pane_height cursor_y
   history_size=$(turn_nav_history_size "$pane_id")
-  pane_height=$(turn_nav_pane_height "$pane_id" 2>/dev/null || true)
-  if turn_nav_is_nonnegative_integer "$history_size" && turn_nav_is_nonnegative_integer "$pane_height" && (( pane_height >= 2 )); then
-    printf '%s\n' "$((history_size + pane_height - 2))"
-    return 0
-  fi
   cursor_y=$(turn_nav_cursor_y "$pane_id")
   if turn_nav_is_nonnegative_integer "$history_size" && turn_nav_is_nonnegative_integer "$cursor_y"; then
     printf '%s\n' "$((history_size + cursor_y + 1))"
+    return 0
+  fi
+  pane_height=$(turn_nav_pane_height "$pane_id" 2>/dev/null || true)
+  if turn_nav_is_nonnegative_integer "$history_size" && turn_nav_is_nonnegative_integer "$pane_height" && (( pane_height >= 2 )); then
+    printf '%s\n' "$((history_size + pane_height - 2))"
   fi
 }
 
@@ -100,7 +100,7 @@ turn_nav_jump_to_line() {
     "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X goto-line "$goto_line"
   fi
   "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X start-of-line
-  if [[ -n "$top_cursor_down_count" ]] && turn_nav_is_nonnegative_integer "$top_cursor_down_count"; then
+  if [[ -z "$search_text" ]] && [[ -n "$top_cursor_down_count" ]] && turn_nav_is_nonnegative_integer "$top_cursor_down_count"; then
     "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X top-line
     local i
     for ((i = 0; i < top_cursor_down_count; i++)); do

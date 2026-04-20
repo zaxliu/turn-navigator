@@ -416,6 +416,52 @@ test_navigation_uses_tmux_cursor_bottom_not_capture_footer() {
   assert_pane_actions_not "%1" "$actions" "send-keys goto-line 7" "send-keys top-line" "send-keys cursor-down"
 }
 
+test_effective_bottom_line_prefers_cursor_when_height_includes_footer() {
+  setup_case
+  source "$ROOT/scripts/lib/state.sh"
+  source "$ROOT/scripts/lib/tmux-nav.sh"
+  fake_tmux_write_pane "%1" $'❯ first\nanswer\n❯ second\nanswer\n❯\nfooter 1\nfooter 2\nfooter 3\nfooter 4' 0
+  fake_tmux_set_pane_position "%1" 5 1
+  fake_tmux_set_pane_height "%1" 10
+
+  local actual
+  actual=$(turn_nav_effective_bottom_line "%1")
+
+  assert_eq "7" "$actual" "effective bottom should follow the live prompt cursor, not footer rows"
+}
+
+test_navigation_preserves_turn_count_when_list_split_truncates_capture() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+  fake_tmux_write_pane_after_split "%1" $'❯ one\nanswer\n❯ '
+
+  turn_nav_cmd navigate up 1 %1
+
+  local current status list_content actions
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  status=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/last_status")
+  list_content=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/turn-list")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "3" "$current" "navigation should keep the selected turn from the pre-split capture"
+  assert_eq "⇅ Turn 3/3" "$status" "status should keep the pre-split turn count"
+  assert_contains "$list_content" "Turn 3/3" "list should keep the pre-split turn count"
+  assert_action_after "$actions" "send-keys select-line" "split-window %2"
+}
+
+test_search_navigation_does_not_apply_history_top_fallback() {
+  setup_case
+  fake_tmux_write_pane "%1" $'intro\nmore intro\n❯ first\nanswer\n❯ second\nanswer\n❯ third\nanswer\n❯ ' 0
+  fake_tmux_set_pane_position "%1" 10 5
+  fake_tmux_set_pane_height "%1" 12
+
+  turn_nav_cmd navigate up 3 %1
+
+  local actions
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward first"
+  assert_pane_actions_not "%1" "$actions" "send-keys top-line" "send-keys cursor-down"
+}
+
 test_navigation_adjusts_cursor_when_target_is_on_history_top_page() {
   setup_case
   fake_tmux_write_pane "%1" $'❯ first\nanswer\n❯ second\nanswer\n❯ third\nanswer\n❯\nfooter 1\nfooter 2\nfooter 3\nfooter 4\nfooter 5' 0
@@ -706,6 +752,9 @@ run_all() {
   test_stale_turn_list_pane_is_replaced
   test_navigation_does_not_search_backward_from_exact_prompt_line
   test_navigation_uses_tmux_cursor_bottom_not_capture_footer
+  test_effective_bottom_line_prefers_cursor_when_height_includes_footer
+  test_navigation_preserves_turn_count_when_list_split_truncates_capture
+  test_search_navigation_does_not_apply_history_top_fallback
   test_navigation_adjusts_cursor_when_target_is_on_history_top_page
   test_missing_pane_state_lazy_activates_on_navigation
   test_first_navigation_after_activation_can_use_existing_scrollback

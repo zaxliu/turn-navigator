@@ -99,6 +99,11 @@ case "$cmd" in
   split-window)
     pane_id=$(pane_id_from_args "$@")
     new_pane=$(next_pane_id)
+    if [[ -f "$(pane_file "$pane_id" content_after_split)" ]]; then
+      cp "$(pane_file "$pane_id" content_after_split)" "$(pane_file "$pane_id" content)"
+      line_count=$(wc -l <"$(pane_file "$pane_id" content)" | tr -d ' ')
+      printf '%s' "$((line_count - 1))" >"$(pane_file "$pane_id" history_size)"
+    fi
     printf '' >"$(pane_file "$new_pane" content)"
     printf '0' >"$(pane_file "$new_pane" pane_in_mode)"
     printf '0' >"$(pane_file "$new_pane" history_size)"
@@ -172,6 +177,13 @@ fake_tmux_set_pane_height() {
   local pane_height=$2
   mkdir -p "${FAKE_TMUX_ROOT}/panes"
   printf '%s' "$pane_height" >"${FAKE_TMUX_ROOT}/panes/${pane}.pane_height"
+}
+
+fake_tmux_write_pane_after_split() {
+  local pane=$1
+  local content=$2
+  mkdir -p "${FAKE_TMUX_ROOT}/panes"
+  printf '%s\n' "$content" >"${FAKE_TMUX_ROOT}/panes/${pane}.content_after_split"
 }
 
 fake_tmux_read_pane_actions() {
