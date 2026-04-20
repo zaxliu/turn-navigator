@@ -36,14 +36,14 @@ claude plugin marketplace add https://github.com/zaxliu/turn-navigator.git
 Install the plugin from that marketplace:
 
 ```bash
-claude plugin install turn-navigator@turn-navigator-local
+claude plugin install turn-navigator@zaxliu
 ```
 
 To install only for the current project instead of globally:
 
 ```bash
 claude plugin marketplace add --scope project https://github.com/zaxliu/turn-navigator.git
-claude plugin install --scope project turn-navigator@turn-navigator-local
+claude plugin install --scope project turn-navigator@zaxliu
 ```
 
 Verify that Claude Code sees the marketplace and plugin:
@@ -64,7 +64,7 @@ For a local checkout:
 
 ```bash
 claude plugin marketplace add /absolute/path/to/turn_navigator
-claude plugin install turn-navigator@turn-navigator-local
+claude plugin install turn-navigator@zaxliu
 ```
 
 If the checkout moves, remove and re-add the marketplace so Claude Code points at the new path.

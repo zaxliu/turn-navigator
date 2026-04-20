@@ -1,19 +1,19 @@
 {
-  "name": "turn-navigator-local",
+  "name": "zaxliu",
   "owner": {
-    "name": "Lewis"
+    "name": "zaxliu"
   },
   "metadata": {
-    "description": "Local marketplace for Turn Navigator.",
-    "version": "1.0.2"
+    "description": "Claude Code plugins by zaxliu.",
+    "version": "1.0.3"
   },
   "plugins": [
     {
       "name": "turn-navigator",
       "description": "Jump between conversation turns in tmux using Shift+Up/Down. Supports Claude Code and Codex CLI.",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "author": {
-        "name": "Lewis"
+        "name": "zaxliu"
       },
       "source": "./"
     }

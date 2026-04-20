@@ -1,9 +1,9 @@
 {
   "name": "turn-navigator",
   "description": "Jump between conversation turns in tmux using Shift+Up/Down. Supports Claude Code and Codex CLI.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": {
-    "name": "Lewis"
+    "name": "zaxliu"
   },
   "keywords": ["navigation", "turns", "tmux", "scrollback", "codex"]
 }
