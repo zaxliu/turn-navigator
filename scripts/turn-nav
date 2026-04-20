@@ -161,6 +161,36 @@ turn_nav_line_at() {
   printf '%s\n' "$content" | sed -n "${line_number}p" | sed -E 's/[[:space:]]+$//'
 }
 
+turn_nav_search_text_for_line() {
+  local content=$1
+  local line_number=$2
+  local fallback=$3
+  local search_text max_width delimiter candidate truncated shortened
+  shortened=0
+  search_text=$(turn_nav_line_at "$content" "$line_number")
+  if [[ -z "$search_text" ]]; then
+    search_text=$fallback
+  fi
+
+  for delimiter in "，" "。" "？" "?" "；" ";" "," "：" ":"; do
+    candidate=${search_text%%"$delimiter"*}
+    if [[ "$candidate" != "$search_text" && ${#candidate} -ge 8 ]]; then
+      search_text=$candidate
+      shortened=1
+      break
+    fi
+  done
+
+  max_width=${TURN_NAV_SEARCH_TEXT_WIDTH:-41}
+  if (( shortened == 0 )) && turn_nav_is_nonnegative_integer "$max_width" && (( max_width > 0 && ${#search_text} > max_width )); then
+    truncated=$(LC_ALL="${TURN_NAV_UTF8_LOCALE:-en_US.UTF-8}" perl -CS -Mutf8 -e 'print substr($ARGV[1], 0, $ARGV[0])' "$max_width" "$search_text" 2>/dev/null || true)
+    if [[ -n "$truncated" ]]; then
+      search_text=$truncated
+    fi
+  fi
+  printf '%s\n' "$search_text"
+}
+
 navigate_cmd() {
   turn_nav_in_tmux || exit 0
   local direction=$1
@@ -278,10 +308,7 @@ navigate_cmd() {
 
   local search_text=
   if turn_nav_should_search_jump "$pane_id"; then
-    search_text=$(turn_nav_line_at "$content" "$target_line")
-    if [[ -z "$search_text" ]]; then
-      search_text=$target_label
-    fi
+    search_text=$(turn_nav_search_text_for_line "$content" "$target_line" "$target_label")
   fi
   turn_nav_jump_to_line "$pane_id" "$goto_line" "$top_cursor_down_count" "$search_text"
   turn_nav_ensure_list_pane "$pane_id"

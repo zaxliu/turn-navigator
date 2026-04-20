@@ -476,6 +476,20 @@ test_search_navigation_anchors_short_prompt_labels_to_prompt_marker() {
   assert_pane_actions_not "%1" "$actions" "send-keys search-backward skip"
 }
 
+test_search_navigation_uses_short_prompt_prefix_for_long_labels() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ “如果 profiler 抓到一个 rmsnorm 的 bf16 kernel，容差是 atol=0.1。这意味着优化后的 kernel 每个元素允许偏差多大？”\nanswer\n这就是为什么代码写成循环累减 remaining_frac，而不是一次性算\n❯ next\nanswer\n❯ ' 0
+  fake_tmux_set_pane_position "%1" 10 5
+  fake_tmux_set_pane_height "%1" 12
+
+  turn_nav_cmd navigate up 2 %1
+
+  local actions
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_pane_actions "%1" "$actions" "send-keys search-backward ❯ “如果 profiler 抓到一个 rmsnorm 的 bf16 kernel"
+  assert_pane_actions_not "%1" "$actions" "search-backward ❯ “如果 profiler 抓到一个 rmsnorm 的 bf16 kernel，容差是 atol=0.1。这意味着优化后的 kernel 每个元素允许偏差多大？”"
+}
+
 test_navigation_adjusts_cursor_when_target_is_on_history_top_page() {
   setup_case
   fake_tmux_write_pane "%1" $'❯ first\nanswer\n❯ second\nanswer\n❯ third\nanswer\n❯\nfooter 1\nfooter 2\nfooter 3\nfooter 4\nfooter 5' 0
@@ -770,6 +784,7 @@ run_all() {
   test_navigation_preserves_turn_count_when_list_split_truncates_capture
   test_search_navigation_does_not_apply_history_top_fallback
   test_search_navigation_anchors_short_prompt_labels_to_prompt_marker
+  test_search_navigation_uses_short_prompt_prefix_for_long_labels
   test_navigation_adjusts_cursor_when_target_is_on_history_top_page
   test_missing_pane_state_lazy_activates_on_navigation
   test_first_navigation_after_activation_can_use_existing_scrollback
