@@ -302,7 +302,7 @@ test_first_navigation_searches_prompt_when_cursor_is_above_pane_bottom() {
 
   local actions
   actions=$(fake_tmux_read_pane_actions "%1")
-  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward newest completed"
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward ❯ newest completed"
   assert_pane_actions_not "%1" "$actions" "send-keys goto-line 5"
 }
 
@@ -458,8 +458,22 @@ test_search_navigation_does_not_apply_history_top_fallback() {
 
   local actions
   actions=$(fake_tmux_read_pane_actions "%1")
-  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward first"
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward ❯ first"
   assert_pane_actions_not "%1" "$actions" "send-keys top-line" "send-keys cursor-down"
+}
+
+test_search_navigation_anchors_short_prompt_labels_to_prompt_marker() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ done\nanswer\n---Progress: say "done" to advance\n❯ skip\nState machine: DONE/SKIPPED\n❯ next\nanswer\n❯ ' 0
+  fake_tmux_set_pane_position "%1" 10 5
+  fake_tmux_set_pane_height "%1" 12
+
+  turn_nav_cmd navigate up 2 %1
+
+  local actions
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward ❯ skip"
+  assert_pane_actions_not "%1" "$actions" "send-keys search-backward skip"
 }
 
 test_navigation_adjusts_cursor_when_target_is_on_history_top_page() {
@@ -755,6 +769,7 @@ run_all() {
   test_effective_bottom_line_prefers_cursor_when_height_includes_footer
   test_navigation_preserves_turn_count_when_list_split_truncates_capture
   test_search_navigation_does_not_apply_history_top_fallback
+  test_search_navigation_anchors_short_prompt_labels_to_prompt_marker
   test_navigation_adjusts_cursor_when_target_is_on_history_top_page
   test_missing_pane_state_lazy_activates_on_navigation
   test_first_navigation_after_activation_can_use_existing_scrollback

@@ -152,6 +152,15 @@ turn_nav_should_search_jump() {
   return 1
 }
 
+turn_nav_line_at() {
+  local content=$1
+  local line_number=$2
+  if ! turn_nav_is_nonnegative_integer "$line_number" || (( line_number < 1 )); then
+    return 0
+  fi
+  printf '%s\n' "$content" | sed -n "${line_number}p" | sed -E 's/[[:space:]]+$//'
+}
+
 navigate_cmd() {
   turn_nav_in_tmux || exit 0
   local direction=$1
@@ -269,7 +278,10 @@ navigate_cmd() {
 
   local search_text=
   if turn_nav_should_search_jump "$pane_id"; then
-    search_text=$target_label
+    search_text=$(turn_nav_line_at "$content" "$target_line")
+    if [[ -z "$search_text" ]]; then
+      search_text=$target_label
+    fi
   fi
   turn_nav_jump_to_line "$pane_id" "$goto_line" "$top_cursor_down_count" "$search_text"
   turn_nav_ensure_list_pane "$pane_id"
