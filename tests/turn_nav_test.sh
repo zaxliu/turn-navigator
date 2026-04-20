@@ -448,6 +448,28 @@ test_navigation_preserves_turn_count_when_list_split_truncates_capture() {
   assert_action_after "$actions" "send-keys select-line" "split-window %2"
 }
 
+test_navigation_does_not_add_older_history_revealed_while_browsing() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ current one\nanswer\n❯ current two\nanswer\n❯ ' 0
+  fake_tmux_write_pane_after_split "%1" $'❯ older revealed\nanswer\n❯ current one\nanswer\n❯ current two\nanswer\n❯ '
+
+  turn_nav_cmd navigate up 1 %1
+  turn_nav_cmd navigate down 1 %1
+
+  local baseline current status list_content actions
+  baseline=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/baseline_turn_count")
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  status=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/last_status")
+  list_content=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/turn-list")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "1" "$baseline" "browsing should fold newly revealed older history into the baseline"
+  assert_eq "2" "$current" "down from newest turn should stay on the newest visible turn"
+  assert_eq "⇅ Turn 2/2" "$status" "status should keep the original visible turn count"
+  assert_contains "$list_content" "Turn 2/2" "list should keep the original visible turn count"
+  assert_file_not_contains "$TURN_NAV_STATE_ROOT/session-1/%1/turn-list" "older revealed"
+  assert_action_count "1" "$actions" "split-window %2"
+}
+
 test_search_navigation_does_not_apply_history_top_fallback() {
   setup_case
   fake_tmux_write_pane "%1" $'intro\nmore intro\n❯ first\nanswer\n❯ second\nanswer\n❯ third\nanswer\n❯ ' 0
@@ -782,6 +804,7 @@ run_all() {
   test_navigation_uses_tmux_cursor_bottom_not_capture_footer
   test_effective_bottom_line_prefers_cursor_when_height_includes_footer
   test_navigation_preserves_turn_count_when_list_split_truncates_capture
+  test_navigation_does_not_add_older_history_revealed_while_browsing
   test_search_navigation_does_not_apply_history_top_fallback
   test_search_navigation_anchors_short_prompt_labels_to_prompt_marker
   test_search_navigation_uses_short_prompt_prefix_for_long_labels

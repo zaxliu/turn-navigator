@@ -25,6 +25,7 @@ activate_cmd() {
   turn_nav_write_state "$pane_id" baseline_turn_count "$baseline"
   turn_nav_delete_state "$pane_id" current_turn
   turn_nav_delete_state "$pane_id" last_status
+  turn_nav_delete_state "$pane_id" visible_turn_count
   turn_nav_close_list_pane "$pane_id"
   turn_nav_write_state "$pane_id" active 1
 }
@@ -41,6 +42,7 @@ bottom_cmd() {
   local pane_id=$1
   turn_nav_delete_state "$pane_id" current_turn
   turn_nav_delete_state "$pane_id" last_status
+  turn_nav_delete_state "$pane_id" visible_turn_count
   turn_nav_close_list_pane "$pane_id"
   if [[ "$(turn_nav_pane_in_copy_mode "$pane_id")" == "1" ]]; then
     turn_nav_cancel_copy_mode "$pane_id"
@@ -202,6 +204,7 @@ navigate_cmd() {
     turn_nav_write_state "$pane_id" baseline_turn_count 0
     turn_nav_delete_state "$pane_id" current_turn
     turn_nav_delete_state "$pane_id" last_status
+    turn_nav_delete_state "$pane_id" visible_turn_count
     turn_nav_write_state "$pane_id" active 1
   fi
 
@@ -221,19 +224,35 @@ navigate_cmd() {
     turn_nav_write_state "$pane_id" baseline_turn_count "$baseline"
     turn_nav_delete_state "$pane_id" current_turn
     turn_nav_delete_state "$pane_id" last_status
+    turn_nav_delete_state "$pane_id" visible_turn_count
     records=()
     while IFS= read -r record; do
       records+=("$record")
     done < <(turn_nav_visible_turn_records "$content" "$baseline")
     total=${#records[@]}
   fi
+
+  local in_copy
+  in_copy=$(turn_nav_pane_in_copy_mode "$pane_id")
+  if [[ "$in_copy" == "1" ]]; then
+    local saved_total
+    saved_total=$(turn_nav_read_state "$pane_id" visible_turn_count "")
+    if turn_nav_is_nonnegative_integer "$saved_total" && (( saved_total > 0 && total > saved_total )); then
+      baseline=$((baseline + total - saved_total))
+      turn_nav_write_state "$pane_id" baseline_turn_count "$baseline"
+      records=()
+      while IFS= read -r record; do
+        records+=("$record")
+      done < <(turn_nav_visible_turn_records "$content" "$baseline")
+      total=${#records[@]}
+    fi
+  fi
   if (( total == 0 )); then
     turn_nav_show_message "$pane_id" "No turns found"
     exit 0
   fi
 
-  local in_copy current new
-  in_copy=$(turn_nav_pane_in_copy_mode "$pane_id")
+  local current new
   if [[ "$in_copy" == "1" ]]; then
     current=$(turn_nav_read_state "$pane_id" current_turn "")
     if [[ -z "$current" ]]; then
@@ -264,6 +283,7 @@ navigate_cmd() {
   status=$(turn_nav_status_text "$new" "$total")
   turn_nav_write_state "$pane_id" current_turn "$new"
   turn_nav_write_state "$pane_id" last_status "$status"
+  turn_nav_write_state "$pane_id" visible_turn_count "$total"
   turn_nav_render_turn_list "$pane_id" "$new" "$total" "${records[@]}"
 
   if [[ "$in_copy" == "0" ]]; then
