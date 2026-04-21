@@ -185,7 +185,7 @@ turn_nav_search_text_for_line() {
 
   max_width=${TURN_NAV_SEARCH_TEXT_WIDTH:-41}
   if (( shortened == 0 )) && turn_nav_is_nonnegative_integer "$max_width" && (( max_width > 0 && ${#search_text} > max_width )); then
-    truncated=$(LC_ALL="${TURN_NAV_UTF8_LOCALE:-en_US.UTF-8}" perl -CS -Mutf8 -e 'print substr($ARGV[1], 0, $ARGV[0])' "$max_width" "$search_text" 2>/dev/null || true)
+    truncated=$(printf '%s\n' "$search_text" | LC_ALL="${TURN_NAV_UTF8_LOCALE:-en_US.UTF-8}" awk -v max="$max_width" '{ print substr($0, 1, max); exit }' 2>/dev/null || true)
     if [[ -n "$truncated" ]]; then
       search_text=$truncated
     fi
@@ -206,6 +206,13 @@ navigate_cmd() {
     turn_nav_delete_state "$pane_id" last_status
     turn_nav_delete_state "$pane_id" visible_turn_count
     turn_nav_write_state "$pane_id" active 1
+  fi
+
+  local in_copy
+  in_copy=$(turn_nav_pane_in_copy_mode "$pane_id")
+  if [[ "$in_copy" == "1" ]]; then
+    turn_nav_close_list_pane "$pane_id"
+    turn_nav_cancel_copy_mode "$pane_id"
   fi
 
   local content baseline total_lines
@@ -232,8 +239,6 @@ navigate_cmd() {
     total=${#records[@]}
   fi
 
-  local in_copy
-  in_copy=$(turn_nav_pane_in_copy_mode "$pane_id")
   if [[ "$in_copy" == "1" ]]; then
     local saved_total
     saved_total=$(turn_nav_read_state "$pane_id" visible_turn_count "")
@@ -286,9 +291,9 @@ navigate_cmd() {
   turn_nav_write_state "$pane_id" visible_turn_count "$total"
   turn_nav_render_turn_list "$pane_id" "$new" "$total" "${records[@]}"
 
-  if [[ "$in_copy" == "0" ]]; then
+  local was_in_copy=$in_copy
+  if [[ "$(turn_nav_pane_in_copy_mode "$pane_id")" == "0" ]]; then
     turn_nav_enter_copy_mode "$pane_id"
-    in_copy=1
   fi
 
   # Entering copy-mode can expose a different wrapped-line map from the live
@@ -304,7 +309,7 @@ navigate_cmd() {
     jump_records=("${copy_records[@]}")
   fi
 
-  if [[ "$new" == "$current" ]]; then
+  if [[ "$new" == "$current" && "$was_in_copy" != "1" ]]; then
     turn_nav_ensure_list_pane "$pane_id"
     turn_nav_show_message "$pane_id" "$status"
     exit 0
@@ -327,10 +332,14 @@ navigate_cmd() {
   fi
 
   local search_text=
-  if turn_nav_should_search_jump "$pane_id"; then
+  if [[ "$was_in_copy" == "1" ]] || turn_nav_should_search_jump "$pane_id"; then
     search_text=$(turn_nav_search_text_for_line "$content" "$target_line" "$target_label")
   fi
-  turn_nav_jump_to_line "$pane_id" "$goto_line" "$top_cursor_down_count" "$search_text"
+  local prefer_verified_goto=0
+  if [[ "$was_in_copy" == "1" ]]; then
+    prefer_verified_goto=1
+  fi
+  turn_nav_jump_to_line "$pane_id" "$goto_line" "$top_cursor_down_count" "$search_text" "$prefer_verified_goto"
   turn_nav_ensure_list_pane "$pane_id"
   turn_nav_show_message "$pane_id" "$status"
 }

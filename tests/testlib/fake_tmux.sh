@@ -81,6 +81,15 @@ case "$cmd" in
       cat "$(pane_file "$2" pane_height)"
     elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{cursor_y}' ]]; then
       cat "$(pane_file "$2" cursor_y)"
+    elif [[ ${1:-} == "-t" && ${3:-} == "-p" && ${4:-} == '#{copy_cursor_line}' ]]; then
+      if [[ -f "$(pane_file "$2" copy_cursor_lines)" ]]; then
+        IFS= read -r first <"$(pane_file "$2" copy_cursor_lines)" || first=
+        printf '%s\n' "$first"
+        tail -n +2 "$(pane_file "$2" copy_cursor_lines)" >"$(pane_file "$2" copy_cursor_lines.tmp)" || true
+        mv "$(pane_file "$2" copy_cursor_lines.tmp)" "$(pane_file "$2" copy_cursor_lines)"
+      elif [[ -f "$(pane_file "$2" copy_cursor_line)" ]]; then
+        cat "$(pane_file "$2" copy_cursor_line)"
+      fi
     elif [[ ${1:-} == "-t" ]]; then
       printf '%s\n' "${3:-}" >>"$log_file"
     else
@@ -132,7 +141,7 @@ case "$cmd" in
       printf '0' >"$(pane_file "$pane_id" pane_in_mode)"
         append_action "$pane_id" "send-keys cancel"
         ;;
-      goto-line|search-backward)
+      goto-line|search-backward|search-backward-text)
         append_action "$pane_id" "send-keys $action ${5:-}"
         ;;
       start-of-line|select-line|cursor-up|cursor-down|top-line)
@@ -177,6 +186,13 @@ fake_tmux_set_pane_height() {
   local pane_height=$2
   mkdir -p "${FAKE_TMUX_ROOT}/panes"
   printf '%s' "$pane_height" >"${FAKE_TMUX_ROOT}/panes/${pane}.pane_height"
+}
+
+fake_tmux_set_copy_cursor_lines() {
+  local pane=$1
+  shift
+  mkdir -p "${FAKE_TMUX_ROOT}/panes"
+  printf '%s\n' "$@" >"${FAKE_TMUX_ROOT}/panes/${pane}.copy_cursor_lines"
 }
 
 fake_tmux_write_pane_after_split() {

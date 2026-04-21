@@ -302,7 +302,7 @@ test_first_navigation_searches_prompt_when_cursor_is_above_pane_bottom() {
 
   local actions
   actions=$(fake_tmux_read_pane_actions "%1")
-  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward ❯ newest completed"
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward-text ❯ newest completed"
   assert_pane_actions_not "%1" "$actions" "send-keys goto-line 5"
 }
 
@@ -340,10 +340,11 @@ test_navigation_updates_existing_turn_list_pane_highlight() {
   list_content=$(cat "$list_file")
   source_actions=$(fake_tmux_read_pane_actions "%1")
 
-  assert_eq "%2" "$list_pane" "second navigation should reuse the existing list pane"
+  assert_eq "%3" "$list_pane" "second navigation should reopen the list pane after restoring full-width jump coordinates"
   assert_contains "$list_content" "Turn 2/3" "list should update current progress"
   assert_contains "$list_content" "> 2  two" "list should move the highlighted turn"
   assert_action_count "1" "$source_actions" "split-window %2"
+  assert_action_count "1" "$source_actions" "split-window %3"
 }
 
 test_bottom_closes_turn_list_pane() {
@@ -470,6 +471,72 @@ test_navigation_does_not_add_older_history_revealed_while_browsing() {
   assert_action_count "1" "$actions" "split-window %2"
 }
 
+test_navigation_searches_prompt_when_already_browsing() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+  fake_tmux_set_pane_position "%1" 6 72
+  fake_tmux_set_pane_height "%1" 75
+
+  turn_nav_cmd navigate up 1 %1
+  turn_nav_cmd navigate up 1 %1
+
+  local current actions
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "2" "$current" "second up while browsing should move to the previous turn"
+  assert_pane_actions "%1" "$actions" "send-keys search-backward-text ❯ two"
+}
+
+test_browsing_navigation_prefers_verified_goto_before_ambiguous_search() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+  fake_tmux_set_pane_position "%1" 6 72
+  fake_tmux_set_pane_height "%1" 75
+
+  turn_nav_cmd navigate up 1 %1
+  fake_tmux_set_copy_cursor_lines "%1" '❯ two'
+  turn_nav_cmd navigate up 1 %1
+
+  local current actions
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "2" "$current" "second up while browsing should move to the previous turn"
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 6"
+  assert_pane_actions_not "%1" "$actions" "send-keys search-backward-text ❯ two"
+}
+
+test_browsing_boundary_rejumps_current_turn_after_layout_restore() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ ' 0
+  fake_tmux_set_pane_position "%1" 4 72
+  fake_tmux_set_pane_height "%1" 75
+
+  turn_nav_cmd navigate up 2 %1
+  fake_tmux_set_copy_cursor_lines "%1" '❯ one'
+  turn_nav_cmd navigate up 1 %1
+
+  local current actions
+  current=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/current_turn")
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_eq "1" "$current" "up at the oldest turn should keep the current turn"
+  assert_action_count "2" "$actions" "send-keys select-line"
+  assert_pane_actions_not "%1" "$actions" "send-keys search-backward-text ❯ one"
+}
+
+test_search_navigation_retries_until_match_is_prompt_line() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ target prompt\nanswer\n  ❯ target prompt\n• Ran printf "❯ target prompt"\n❯ next\nanswer\n❯ ' 0
+  fake_tmux_set_pane_position "%1" 10 5
+  fake_tmux_set_pane_height "%1" 12
+  fake_tmux_set_copy_cursor_lines "%1" '  ❯ target prompt' '• Ran printf "❯ target prompt"' '❯ target prompt'
+
+  turn_nav_cmd navigate up 2 %1
+
+  local actions
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_action_count "3" "$actions" "send-keys search-backward-text ❯ target prompt"
+}
+
 test_search_navigation_does_not_apply_history_top_fallback() {
   setup_case
   fake_tmux_write_pane "%1" $'intro\nmore intro\n❯ first\nanswer\n❯ second\nanswer\n❯ third\nanswer\n❯ ' 0
@@ -480,7 +547,7 @@ test_search_navigation_does_not_apply_history_top_fallback() {
 
   local actions
   actions=$(fake_tmux_read_pane_actions "%1")
-  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward ❯ first"
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward-text ❯ first"
   assert_pane_actions_not "%1" "$actions" "send-keys top-line" "send-keys cursor-down"
 }
 
@@ -494,8 +561,8 @@ test_search_navigation_anchors_short_prompt_labels_to_prompt_marker() {
 
   local actions
   actions=$(fake_tmux_read_pane_actions "%1")
-  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward ❯ skip"
-  assert_pane_actions_not "%1" "$actions" "send-keys search-backward skip"
+  assert_pane_actions "%1" "$actions" "send-keys goto-line 0" "send-keys search-backward-text ❯ skip"
+  assert_pane_actions_not "%1" "$actions" "send-keys search-backward-text skip"
 }
 
 test_search_navigation_uses_short_prompt_prefix_for_long_labels() {
@@ -508,8 +575,23 @@ test_search_navigation_uses_short_prompt_prefix_for_long_labels() {
 
   local actions
   actions=$(fake_tmux_read_pane_actions "%1")
-  assert_pane_actions "%1" "$actions" "send-keys search-backward ❯ “如果 profiler 抓到一个 rmsnorm 的 bf16 kernel"
-  assert_pane_actions_not "%1" "$actions" "search-backward ❯ “如果 profiler 抓到一个 rmsnorm 的 bf16 kernel，容差是 atol=0.1。这意味着优化后的 kernel 每个元素允许偏差多大？”"
+  assert_pane_actions "%1" "$actions" "send-keys search-backward-text ❯ “如果 profiler 抓到一个 rmsnorm 的 bf16 kernel"
+  assert_pane_actions_not "%1" "$actions" "search-backward-text ❯ “如果 profiler 抓到一个 rmsnorm 的 bf16 kernel，容差是 atol=0.1。这意味着优化后的 kernel 每个元素允许偏差多大？”"
+}
+
+test_search_navigation_keeps_utf8_prompt_prefix_readable() {
+  setup_case
+  local prompt=$'› 现在当前这个pane （TurnNavigator window3）左pane的navigation右坏掉了'
+  fake_tmux_write_pane "%1" "${prompt}"$'\nanswer\n› next\nanswer\n› ' 0
+  fake_tmux_set_pane_position "%1" 10 5
+  fake_tmux_set_pane_height "%1" 12
+
+  TURN_NAV_SEARCH_TEXT_WIDTH=41 turn_nav_cmd navigate up 2 %1
+
+  local actions
+  actions=$(fake_tmux_read_pane_actions "%1")
+  assert_pane_actions "%1" "$actions" "send-keys search-backward-text › 现在当前这个pane （TurnNavigat"
+  assert_pane_actions_not "%1" "$actions" "âº"
 }
 
 test_navigation_adjusts_cursor_when_target_is_on_history_top_page() {
@@ -569,6 +651,7 @@ test_stale_current_turn_is_clamped_before_navigation() {
   fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ new one\nanswer\n❯ new two\nanswer\n❯ new three\nanswer\n❯ ' 0
   turn_nav_cmd navigate up 1 %1
   fake_tmux_write_pane "%1" $'❯ old\nanswer\n❯ only remaining\nanswer\n❯ ' 1
+  fake_tmux_set_copy_cursor_lines "%1" '❯ only remaining'
 
   turn_nav_cmd navigate up 1 %1
 
@@ -599,9 +682,8 @@ test_copy_mode_without_current_turn_uses_bottom_sentinel() {
   assert_eq "2" "$current" "copy mode without saved current_turn should start from the bottom sentinel"
   assert_eq "⇅ Turn 2/2" "$status" "first up from copy mode should land on the newest visible turn"
   assert_pane_actions "%1" "$actions" \
-    "send-keys goto-line 2" \
+    "send-keys search-backward-text ❯ new two" \
     "send-keys select-line"
-  assert_pane_actions_not "%1" "$actions" "send-keys search-backward"
 }
 
 test_codex_resume_session_ignores_activation_baseline_before_banner() {
@@ -805,9 +887,14 @@ run_all() {
   test_effective_bottom_line_prefers_cursor_when_height_includes_footer
   test_navigation_preserves_turn_count_when_list_split_truncates_capture
   test_navigation_does_not_add_older_history_revealed_while_browsing
+  test_navigation_searches_prompt_when_already_browsing
+  test_browsing_navigation_prefers_verified_goto_before_ambiguous_search
+  test_browsing_boundary_rejumps_current_turn_after_layout_restore
+  test_search_navigation_retries_until_match_is_prompt_line
   test_search_navigation_does_not_apply_history_top_fallback
   test_search_navigation_anchors_short_prompt_labels_to_prompt_marker
   test_search_navigation_uses_short_prompt_prefix_for_long_labels
+  test_search_navigation_keeps_utf8_prompt_prefix_readable
   test_navigation_adjusts_cursor_when_target_is_on_history_top_page
   test_missing_pane_state_lazy_activates_on_navigation
   test_first_navigation_after_activation_can_use_existing_scrollback

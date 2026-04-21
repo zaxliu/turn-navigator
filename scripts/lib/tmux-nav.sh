@@ -30,6 +30,22 @@ turn_nav_cursor_y() {
   "$(turn_nav_tmux_bin)" display-message -t "$pane_id" -p '#{cursor_y}'
 }
 
+turn_nav_copy_cursor_line() {
+  local pane_id=$1
+  "$(turn_nav_tmux_bin)" display-message -t "$pane_id" -p '#{copy_cursor_line}'
+}
+
+turn_nav_is_prompt_cursor_line() {
+  local line=$1
+  [[ "$line" =~ ^(❯|›)([[:space:]]|$) ]]
+}
+
+turn_nav_is_prompt_cursor_match() {
+  local line=$1
+  local search_text=$2
+  turn_nav_is_prompt_cursor_line "$line" && [[ "$line" == *"$search_text"* ]]
+}
+
 turn_nav_effective_bottom_line() {
   local pane_id=$1
   local history_size pane_height cursor_y
@@ -93,9 +109,28 @@ turn_nav_jump_to_line() {
   local goto_line=$2
   local top_cursor_down_count=${3:-}
   local search_text=${4:-}
+  local prefer_verified_goto=${5:-0}
   if [[ -n "$search_text" ]]; then
-    "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X goto-line 0
-    "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X search-backward "$search_text"
+    local matched_line attempts found_prompt
+    found_prompt=0
+    if [[ "$prefer_verified_goto" == "1" ]]; then
+      "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X goto-line "$goto_line"
+      matched_line=$(turn_nav_copy_cursor_line "$pane_id" 2>/dev/null || true)
+      if turn_nav_is_prompt_cursor_match "$matched_line" "$search_text"; then
+        found_prompt=1
+      fi
+    fi
+    if [[ "$found_prompt" == "0" ]]; then
+      "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X goto-line 0
+      "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X search-backward-text "$search_text"
+      for ((attempts = 0; attempts < 5; attempts++)); do
+        matched_line=$(turn_nav_copy_cursor_line "$pane_id" 2>/dev/null || true)
+        if turn_nav_is_prompt_cursor_match "$matched_line" "$search_text"; then
+          break
+        fi
+        "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X search-backward-text "$search_text"
+      done
+    fi
   else
     "$(turn_nav_tmux_bin)" send-keys -t "$pane_id" -X goto-line "$goto_line"
   fi
