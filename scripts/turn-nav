@@ -296,7 +296,9 @@ navigate_cmd() {
   local in_copy
   in_copy=$(turn_nav_pane_in_copy_mode "$pane_id")
   if [[ "$in_copy" == "1" ]]; then
-    turn_nav_close_list_pane "$pane_id"
+    if [[ "$(turn_nav_list_position)" == "right" ]]; then
+      turn_nav_close_list_pane "$pane_id"
+    fi
     turn_nav_cancel_copy_mode "$pane_id"
   fi
 
@@ -379,13 +381,12 @@ navigate_cmd() {
   turn_nav_render_turn_list "$pane_id" "$new" "$total" "$list_height" "${records[@]}"
 
   local was_in_copy=$in_copy
-  if [[ "$(turn_nav_pane_in_copy_mode "$pane_id")" == "0" ]]; then
-    turn_nav_enter_copy_mode "$pane_id"
+  if [[ "$(turn_nav_list_position)" != "right" ]]; then
+    turn_nav_ensure_list_pane "$pane_id" "$list_height"
   fi
 
-  # Entering copy-mode can expose a different wrapped-line map from the live
-  # pane. Re-capture before opening the list pane so the jump uses copy-mode
-  # coordinates without letting split-induced reflow truncate the turn list.
+  # Bottom list panes resize the source pane. Re-capture after opening the list
+  # while still in normal mode so line records come from stable live scrollback.
   content=$(turn_nav_capture_pane "$pane_id")
   local jump_records=("${records[@]}")
   local copy_records=()
@@ -394,6 +395,10 @@ navigate_cmd() {
   done < <(turn_nav_visible_turn_records "$content" "$baseline")
   if ((${#copy_records[@]} >= new)); then
     jump_records=("${copy_records[@]}")
+  fi
+
+  if [[ "$(turn_nav_pane_in_copy_mode "$pane_id")" == "0" ]]; then
+    turn_nav_enter_copy_mode "$pane_id"
   fi
 
   if [[ "$new" == "$current" && "$was_in_copy" != "1" ]]; then
@@ -427,7 +432,9 @@ navigate_cmd() {
     prefer_verified_goto=1
   fi
   turn_nav_jump_to_line "$pane_id" "$goto_line" "$top_cursor_down_count" "$search_text" "$prefer_verified_goto"
-  turn_nav_ensure_list_pane "$pane_id" "$list_height"
+  if [[ "$(turn_nav_list_position)" == "right" ]]; then
+    turn_nav_ensure_list_pane "$pane_id" "$list_height"
+  fi
   turn_nav_show_message "$pane_id" "$status"
 }
 

@@ -277,7 +277,8 @@ test_navigation_issues_tmux_actions() {
     "copy-mode" \
     "send-keys goto-line 2" \
     "send-keys start-of-line" \
-    "send-keys select-line"
+    "send-keys select-line" \
+    "send-keys scroll-middle"
   assert_pane_actions_not "%1" "$actions" "send-keys search-backward"
 }
 
@@ -327,6 +328,18 @@ test_navigation_opens_and_renders_turn_list_pane() {
   assert_pane_actions "$list_pane" "$list_actions" "list-pane-command"
 }
 
+test_turn_list_pane_command_does_not_clear_on_poll_interval() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ ' 0
+
+  turn_nav_cmd navigate up 1 %1
+
+  local list_actions
+  list_actions=$(fake_tmux_read_pane_actions "%2")
+  assert_pane_actions "%2" "$list_actions" "list-pane-command"
+  assert_pane_actions_not "%2" "$list_actions" "clear; cat"
+}
+
 test_turn_list_pane_height_is_capped_to_thirty_percent_of_source_pane() {
   setup_case
   local content=$'❯ one\nanswer'
@@ -366,17 +379,20 @@ test_navigation_updates_existing_turn_list_pane_highlight() {
   turn_nav_cmd navigate up 1 %1
   turn_nav_cmd navigate up 1 %1
 
-  local list_pane list_file list_content source_actions
+  local list_pane list_file list_content source_actions list_actions
   list_pane=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/list_pane_id")
   list_file=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/list_file")
   list_content=$(cat "$list_file")
   source_actions=$(fake_tmux_read_pane_actions "%1")
+  list_actions=$(fake_tmux_read_pane_actions "%2")
 
-  assert_eq "%3" "$list_pane" "second navigation should reopen the list pane after restoring full-width jump coordinates"
+  assert_eq "%2" "$list_pane" "bottom list pane should stay open across browsing navigation"
   assert_contains "$list_content" "Turn 2/3" "list should update current progress"
   assert_contains "$list_content" "> 2  two" "list should move the highlighted turn"
+  assert_pane_actions "%1" "$source_actions" "send-keys cancel"
   assert_action_count "1" "$source_actions" "split-window -v -l 5 %2"
-  assert_action_count "1" "$source_actions" "split-window -v -l 5 %3"
+  assert_pane_actions_not "%1" "$source_actions" "split-window -v -l 5 %3"
+  assert_pane_actions_not "%2" "$list_actions" "kill-pane"
 }
 
 test_bottom_closes_turn_list_pane() {
@@ -478,7 +494,8 @@ test_navigation_preserves_turn_count_when_list_split_truncates_capture() {
   assert_eq "3" "$current" "navigation should keep the selected turn from the pre-split capture"
   assert_eq "⇅ Turn 3/3" "$status" "status should keep the pre-split turn count"
   assert_contains "$list_content" "Turn 3/3" "list should keep the pre-split turn count"
-  assert_action_after "$actions" "send-keys select-line" "split-window -v -l 5 %2"
+  assert_action_after "$actions" "split-window -v -l 5 %2" "copy-mode"
+  assert_action_after "$actions" "split-window -v -l 5 %2" "send-keys select-line"
 }
 
 test_navigation_does_not_add_older_history_revealed_while_browsing() {

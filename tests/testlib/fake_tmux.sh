@@ -71,6 +71,15 @@ split_window_summary_from_args() {
   printf '%s -l %s\n' "$orientation" "$size"
 }
 
+split_window_command_from_args() {
+  local last=
+  while (($#)); do
+    last=$1
+    shift
+  done
+  printf '%s\n' "$last"
+}
+
 case "$cmd" in
   display-message)
     if [[ ${1:-} == "-p" ]]; then
@@ -126,6 +135,7 @@ case "$cmd" in
   split-window)
     pane_id=$(pane_id_from_args "$@")
     split_summary=$(split_window_summary_from_args "$@")
+    split_command=$(split_window_command_from_args "$@")
     new_pane=$(next_pane_id)
     if [[ -f "$(pane_file "$pane_id" content_after_split)" ]]; then
       cp "$(pane_file "$pane_id" content_after_split)" "$(pane_file "$pane_id" content)"
@@ -138,7 +148,7 @@ case "$cmd" in
     printf '0' >"$(pane_file "$new_pane" cursor_y)"
     printf '3' >"$(pane_file "$new_pane" pane_height)"
     append_action "$pane_id" "split-window $split_summary $new_pane"
-    append_action "$new_pane" "list-pane-command"
+    append_action "$new_pane" "list-pane-command $split_command"
     printf '%s\n' "$new_pane"
     ;;
   select-pane)
@@ -163,7 +173,7 @@ case "$cmd" in
       goto-line|search-backward|search-backward-text)
         append_action "$pane_id" "send-keys $action ${5:-}"
         ;;
-      start-of-line|select-line|cursor-up|cursor-down|top-line)
+      start-of-line|select-line|scroll-middle|cursor-up|cursor-down|top-line)
         append_action "$pane_id" "send-keys $action"
         ;;
     esac
