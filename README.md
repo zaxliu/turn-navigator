@@ -13,15 +13,15 @@ Works with both **Claude Code** (`❯`) and **Codex CLI** (`›`).
 
 | Key | Action |
 |-----|--------|
-| Shift+Up | Previous turn |
-| Shift+Down | Next turn |
-| Alt+Up | Jump 5 turns up |
-| Alt+Down | Jump 5 turns down |
+| Alt+Up | Previous turn |
+| Alt+Down | Next turn |
+| Alt+Shift+Up | Jump 5 turns up |
+| Alt+Shift+Down | Jump 5 turns down |
 | Ctrl+G | Exit to bottom |
 | q / Escape | Exit browse mode |
 
 A turn counter (for example `Turn 3/12`) appears in the status bar while browsing.
-The first navigation keypress also opens a temporary bottom turn list pane. The list shows the completed turns in the current session as `number + prompt first line`, and the highlighted row follows `Shift+Up/Down` and `Alt+Up/Down` as the main pane jumps.
+The first navigation keypress also opens a temporary bottom turn list pane. The list shows the completed turns in the current session as `number + prompt first line`, and the highlighted row follows `Alt+Up/Down` and `Alt+Shift+Up/Down` as the main pane jumps.
 
 ## Installation
 
@@ -124,7 +124,7 @@ export TURN_NAV_LIST_MIN_HEIGHT=5
 2. tmux bindings stay static after install and call `scripts/turn-nav navigate`
 3. If pane state is missing or activation hid all existing scrollback, the first navigation keypress initializes state for that pane
 4. **SessionEnd** calls `scripts/turn-nav deactivate` to clear only the current pane state
-5. **Shift+Up/Down** enters tmux copy-mode, jumps between completed user prompt lines, and keeps the temporary bottom turn list pane in sync
+5. **Alt+Up/Down** enters tmux copy-mode, jumps between completed user prompt lines, and keeps the temporary bottom turn list pane in sync
 
 The list is implemented as a temporary tmux pane instead of a popup because tmux popups pause updates to the underlying pane while they are open. A bottom pane keeps the source pane width stable while the main pane and the turn list update together. `Ctrl+G`, `q`, `Escape`, and `deactivate` close the list pane and clear pane-local list state.
 

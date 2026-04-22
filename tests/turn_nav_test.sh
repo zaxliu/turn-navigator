@@ -804,7 +804,10 @@ test_cleanup_shim_delegates_to_turn_nav() {
 }
 
 test_static_tmux_config_references_turn_nav_entrypoints() {
-  assert_file_contains "$ROOT/tmux/turn-nav.conf" 'scripts/turn-nav navigate up 1 #{pane_id}'
+  assert_file_contains "$ROOT/tmux/turn-nav.conf" 'bind-key -T root M-Up     run-shell "sh -c '\''#{@turn_nav_root}/scripts/turn-nav navigate up 1 #{pane_id}'\''"'
+  assert_file_contains "$ROOT/tmux/turn-nav.conf" 'bind-key -T root M-S-Up   run-shell "sh -c '\''#{@turn_nav_root}/scripts/turn-nav navigate up 5 #{pane_id}'\''"'
+  assert_file_contains "$ROOT/tmux/turn-nav.conf" 'bind-key -T root M-Down   run-shell "sh -c '\''#{@turn_nav_root}/scripts/turn-nav navigate down 1 #{pane_id}'\''"'
+  assert_file_contains "$ROOT/tmux/turn-nav.conf" 'bind-key -T root M-S-Down run-shell "sh -c '\''#{@turn_nav_root}/scripts/turn-nav navigate down 5 #{pane_id}'\''"'
   assert_file_contains "$ROOT/tmux/turn-nav.conf" 'scripts/turn-nav bottom #{pane_id}'
   assert_file_contains "$ROOT/tmux/turn-nav.conf" 'scripts/turn-nav status #{pane_id}'
 }
@@ -845,6 +848,34 @@ test_static_tmux_config_status_right_is_idempotent() {
   assert_eq 'BASE#{?pane_in_mode,#[fg=colour0,bg=colour39,bold] #(sh -c "#{@turn_nav_root}/scripts/turn-nav status #{pane_id}") #[default],}' "$status_right" "tmux config should preserve existing status-right content and append the segment once"
 }
 
+test_static_tmux_config_removes_legacy_shift_bindings() {
+  setup_tmux_config_case
+  tmux_config_cmd bind-key -T root S-Up display-message legacy-up
+  tmux_config_cmd bind-key -T root S-Down display-message legacy-down
+  tmux_config_cmd bind-key -T copy-mode S-Up display-message legacy-copy-up
+  tmux_config_cmd bind-key -T copy-mode S-Down display-message legacy-copy-down
+  tmux_config_cmd bind-key -T copy-mode-vi S-Up display-message legacy-vi-up
+  tmux_config_cmd bind-key -T copy-mode-vi S-Down display-message legacy-vi-down
+
+  tmux_config_cmd source-file "$ROOT/tmux/turn-nav.conf"
+
+  local root_up root_down copy_up copy_down vi_up vi_down
+  root_up=$(tmux_config_cmd list-keys -T root S-Up 2>/dev/null || true)
+  root_down=$(tmux_config_cmd list-keys -T root S-Down 2>/dev/null || true)
+  copy_up=$(tmux_config_cmd list-keys -T copy-mode S-Up 2>/dev/null || true)
+  copy_down=$(tmux_config_cmd list-keys -T copy-mode S-Down 2>/dev/null || true)
+  vi_up=$(tmux_config_cmd list-keys -T copy-mode-vi S-Up 2>/dev/null || true)
+  vi_down=$(tmux_config_cmd list-keys -T copy-mode-vi S-Down 2>/dev/null || true)
+  cleanup_tmux_config_case
+
+  assert_empty "$root_up" "root S-Up legacy binding should be removed"
+  assert_empty "$root_down" "root S-Down legacy binding should be removed"
+  assert_empty "$copy_up" "copy-mode S-Up legacy binding should be removed"
+  assert_empty "$copy_down" "copy-mode S-Down legacy binding should be removed"
+  assert_empty "$vi_up" "copy-mode-vi S-Up legacy binding should be removed"
+  assert_empty "$vi_down" "copy-mode-vi S-Down legacy binding should be removed"
+}
+
 test_install_tmux_subcommand_loads_static_bindings_for_current_plugin_root() {
   setup_tmux_config_case
   TEST_TMPDIR=$(mktemp -d)
@@ -855,7 +886,7 @@ test_install_tmux_subcommand_loads_static_bindings_for_current_plugin_root() {
   local root status_right binding
   root=$(tmux_config_cmd show-option -gv @turn_nav_root)
   status_right=$(tmux_config_cmd show-option -gv status-right)
-  binding=$(tmux_config_cmd list-keys -T root S-Up)
+  binding=$(tmux_config_cmd list-keys -T root M-Up)
   cleanup_tmux_config_case
 
   assert_eq "$ROOT" "$root" "install-tmux should point @turn_nav_root at the current plugin checkout"
@@ -865,7 +896,7 @@ test_install_tmux_subcommand_loads_static_bindings_for_current_plugin_root() {
     exit 1
   fi
   if ! printf '%s\n' "$binding" | grep -Fq 'scripts/turn-nav navigate up 1 #{pane_id}'; then
-    printf 'ASSERTION FAILED: install-tmux should install root S-Up binding\nbinding: [%s]\n' "$binding" >&2
+    printf 'ASSERTION FAILED: install-tmux should install root M-Up binding\nbinding: [%s]\n' "$binding" >&2
     exit 1
   fi
 }
@@ -943,6 +974,7 @@ run_all() {
   test_static_tmux_config_preserves_preconfigured_root
   test_static_tmux_config_sets_default_root_when_unset
   test_static_tmux_config_status_right_is_idempotent
+  test_static_tmux_config_removes_legacy_shift_bindings
   test_install_tmux_subcommand_loads_static_bindings_for_current_plugin_root
   test_readme_documents_static_tmux_installation
   test_help_skill_mentions_tmux_binding_requirement

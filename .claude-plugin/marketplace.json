@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "Claude Code plugins by zaxliu.",
-    "version": "1.1.1"
+    "version": "1.1.2"
   },
   "plugins": [
     {
       "name": "turn-navigator",
-      "description": "Jump between conversation turns in tmux using Shift+Up/Down. Supports Claude Code and Codex CLI.",
-      "version": "1.1.1",
+      "description": "Jump between conversation turns in tmux using Alt+Up/Down. Supports Claude Code and Codex CLI.",
+      "version": "1.1.2",
       "author": {
         "name": "zaxliu"
       },

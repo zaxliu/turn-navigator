@@ -7,10 +7,10 @@ Show the turn-navigator keybinding table:
 
 | Key | Action |
 |-----|--------|
-| Shift+↑ | Previous turn |
-| Shift+↓ | Next turn |
-| Alt+↑ | Up 5 turns |
-| Alt+↓ | Down 5 turns |
+| Alt+↑ | Previous turn |
+| Alt+↓ | Next turn |
+| Alt+Shift+↑ | Up 5 turns |
+| Alt+Shift+↓ | Down 5 turns |
 | Ctrl+G | Jump to bottom |
 | q | Exit browse mode |
 
