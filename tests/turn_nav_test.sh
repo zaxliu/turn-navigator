@@ -16,7 +16,7 @@ assert_eq() {
 assert_file_contains() {
   local path=$1
   local needle=$2
-  if ! grep -Fq "$needle" "$path"; then
+  if ! grep -Fq -- "$needle" "$path"; then
     printf 'ASSERTION FAILED: expected [%s] in %s\n' "$needle" "$path" >&2
     exit 1
   fi
@@ -25,7 +25,7 @@ assert_file_contains() {
 assert_file_not_contains() {
   local path=$1
   local needle=$2
-  if grep -Fq "$needle" "$path"; then
+  if grep -Fq -- "$needle" "$path"; then
     printf 'ASSERTION FAILED: did not expect [%s] in %s\n' "$needle" "$path" >&2
     exit 1
   fi
@@ -35,7 +35,7 @@ assert_contains() {
   local haystack=$1
   local needle=$2
   local message=$3
-  if ! printf '%s\n' "$haystack" | grep -Fq "$needle"; then
+  if ! printf '%s\n' "$haystack" | grep -Fq -- "$needle"; then
     printf 'ASSERTION FAILED: %s\nexpected to find: [%s]\nin:\n%s\n' "$message" "$needle" "$haystack" >&2
     exit 1
   fi
@@ -310,6 +310,7 @@ test_first_navigation_searches_prompt_when_cursor_is_above_pane_bottom() {
 test_navigation_opens_and_renders_turn_list_pane() {
   setup_case
   fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+  fake_tmux_set_pane_height "%1" 24
 
   turn_nav_cmd navigate up 1 %1
 
@@ -322,10 +323,33 @@ test_navigation_opens_and_renders_turn_list_pane() {
 
   assert_eq "%2" "$list_pane" "navigation should record the created list pane id"
   assert_contains "$list_content" "Turn 3/3" "list should show current progress"
-  assert_contains "$list_content" "  1  one" "list should show older turns"
-  assert_contains "$list_content" "> 3  three" "list should highlight the current turn"
-  assert_pane_actions "%1" "$source_actions" "split-window -v -l 5 %2" "select-pane"
+  assert_contains "$list_content" "Keys: Alt-Up/Down=1  Alt-Shift-Up/Down=5  q/Esc=exit" "list should document navigation shortcuts"
+  assert_contains "$list_content" "   Turn  Prompt" "list should show aligned column labels"
+  assert_contains "$list_content" "-  ----  ------" "list should show a column separator"
+  assert_contains "$list_content" "      1  one" "list should show older turns in an aligned turn column"
+  assert_contains "$list_content" ">     3  three" "list should highlight the current turn"
+  assert_pane_actions "%1" "$source_actions" "split-window -v -l 7 %2" "select-pane"
   assert_pane_actions "$list_pane" "$list_actions" "list-pane-command"
+}
+
+test_turn_list_pane_aligns_two_digit_turn_numbers() {
+  setup_case
+  local content=$'❯ turn 1\nanswer'
+  local i
+  for ((i = 2; i <= 12; i++)); do
+    content+=$'\n'"❯ turn $i"$'\nanswer'
+  done
+  content+=$'\n❯ '
+  fake_tmux_write_pane "%1" "$content" 0
+  fake_tmux_set_pane_height "%1" 60
+
+  turn_nav_cmd navigate up 1 %1
+
+  local list_content
+  list_content=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/turn-list")
+  assert_contains "$list_content" "      9  turn 9" "single digit turns should be padded inside the Turn column"
+  assert_contains "$list_content" "     10  turn 10" "two digit turns should align inside the same Turn column"
+  assert_contains "$list_content" ">    12  turn 12" "current two digit turn should keep the marker in its own column"
 }
 
 test_turn_list_pane_command_does_not_clear_on_poll_interval() {
@@ -358,7 +382,21 @@ test_turn_list_pane_height_is_capped_to_thirty_percent_of_source_pane() {
   list_content=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/turn-list")
   assert_pane_actions "%1" "$source_actions" "split-window -v -l 6 %2"
   assert_contains "$list_content" "Turn 20/20" "list should still show current progress when height is capped"
-  assert_contains "$list_content" "  ..." "height-capped list should show elision"
+  assert_contains "$list_content" "   Turn  Prompt" "height-capped list should keep the styled header"
+  assert_contains "$list_content" "    ...  ..." "height-capped list should show aligned elision"
+}
+
+test_turn_list_pane_min_height_does_not_overflow_header_budget() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+
+  turn_nav_cmd navigate up 1 %1
+
+  local list_content line_count
+  list_content=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/turn-list")
+  line_count=$(printf '%s\n' "$list_content" | wc -l | tr -d ' ')
+  assert_eq "5" "$line_count" "minimum-height list should not render more lines than the pane"
+  assert_contains "$list_content" ">     3  three" "minimum-height list should keep the current turn visible"
 }
 
 test_turn_list_pane_can_use_legacy_right_position() {
@@ -375,6 +413,7 @@ test_turn_list_pane_can_use_legacy_right_position() {
 test_navigation_updates_existing_turn_list_pane_highlight() {
   setup_case
   fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+  fake_tmux_set_pane_height "%1" 24
 
   turn_nav_cmd navigate up 1 %1
   turn_nav_cmd navigate up 1 %1
@@ -388,10 +427,10 @@ test_navigation_updates_existing_turn_list_pane_highlight() {
 
   assert_eq "%2" "$list_pane" "bottom list pane should stay open across browsing navigation"
   assert_contains "$list_content" "Turn 2/3" "list should update current progress"
-  assert_contains "$list_content" "> 2  two" "list should move the highlighted turn"
+  assert_contains "$list_content" ">     2  two" "list should move the highlighted turn"
   assert_pane_actions "%1" "$source_actions" "send-keys cancel"
-  assert_action_count "1" "$source_actions" "split-window -v -l 5 %2"
-  assert_pane_actions_not "%1" "$source_actions" "split-window -v -l 5 %3"
+  assert_action_count "1" "$source_actions" "split-window -v -l 7 %2"
+  assert_pane_actions_not "%1" "$source_actions" "split-window -v -l 7 %3"
   assert_pane_actions_not "%2" "$list_actions" "kill-pane"
 }
 
@@ -960,6 +999,8 @@ run_all() {
   test_navigation_returns_to_line_start_after_selecting_line
   test_first_navigation_searches_prompt_when_cursor_is_above_pane_bottom
   test_navigation_opens_and_renders_turn_list_pane
+  test_turn_list_pane_aligns_two_digit_turn_numbers
+  test_turn_list_pane_min_height_does_not_overflow_header_budget
   test_navigation_updates_existing_turn_list_pane_highlight
   test_bottom_closes_turn_list_pane
   test_deactivate_closes_turn_list_pane

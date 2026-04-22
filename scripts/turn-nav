@@ -83,6 +83,10 @@ turn_nav_list_min_height() {
   fi
 }
 
+turn_nav_list_header_height() {
+  printf '4\n'
+}
+
 turn_nav_list_max_height_for_pane() {
   local pane_id=$1
   local min_height pane_height percent max_height
@@ -108,14 +112,15 @@ turn_nav_list_max_height_for_pane() {
 turn_nav_list_height_for_total() {
   local pane_id=$1
   local total=$2
-  local min_height max_height full_height height
+  local min_height max_height header_height full_height height
   min_height=$(turn_nav_list_min_height)
   if [[ "$(turn_nav_list_position)" == "right" ]]; then
     printf '\n'
     return 0
   fi
   max_height=$(turn_nav_list_max_height_for_pane "$pane_id")
-  full_height=$((total + 2))
+  header_height=$(turn_nav_list_header_height)
+  full_height=$((total + header_height))
   height=$full_height
   (( height < min_height )) && height=$min_height
   (( height > max_height )) && height=$max_height
@@ -127,11 +132,19 @@ turn_nav_turn_list_window() {
   local total=$2
   local target_height=$3
   local fallback_max_rows=$4
+  local header_height
+  header_height=$(turn_nav_list_header_height)
   local start=1
   local end=$total
-  if turn_nav_is_nonnegative_integer "$target_height" && (( target_height > 2 )); then
+  if turn_nav_is_nonnegative_integer "$target_height" && (( target_height > header_height )); then
     local rows_available slots extra
-    rows_available=$((target_height - 2))
+    rows_available=$((target_height - header_height))
+    if (( rows_available <= 1 && total > rows_available )); then
+      start=$current
+      end=$current
+      printf '%s\t%s\n' "$start" "$end"
+      return 0
+    fi
     if (( total > rows_available )); then
       for ((slots = rows_available; slots > 0; slots--)); do
         start=$((current - (slots / 2)))
@@ -180,12 +193,41 @@ turn_nav_render_turn_list() {
   local start end
   IFS=$'\t' read -r start end < <(turn_nav_turn_list_window "$current" "$total" "$target_height" "$max_rows")
 
+  local index_width turn_separator
+  index_width=${#total}
+  (( index_width < 4 )) && index_width=4
+  turn_separator=$(printf '%*s' "$index_width" '' | tr ' ' '-')
+
+  local show_start_elision=0
+  local show_end_elision=0
+  (( start > 1 )) && show_start_elision=1
+  (( end < total )) && show_end_elision=1
+  if turn_nav_is_nonnegative_integer "$target_height"; then
+    local header_height rows_available rendered_rows
+    header_height=$(turn_nav_list_header_height)
+    rows_available=$((target_height - header_height))
+    (( rows_available < 1 )) && rows_available=1
+    rendered_rows=$((end - start + 1 + show_start_elision + show_end_elision))
+    while (( rendered_rows > rows_available )); do
+      if (( show_start_elision == 1 )); then
+        show_start_elision=0
+      elif (( show_end_elision == 1 )); then
+        show_end_elision=0
+      else
+        break
+      fi
+      rendered_rows=$((end - start + 1 + show_start_elision + show_end_elision))
+    done
+  fi
+
   local record index _line label marker display_label
   {
     printf 'Turn %s/%s\n' "$current" "$total"
-    printf '%s\n' '------------'
-    if (( start > 1 )); then
-      printf '  ...\n'
+    printf '%s\n' 'Keys: Alt-Up/Down=1  Alt-Shift-Up/Down=5  q/Esc=exit'
+    printf '   %*s  %s\n' "$index_width" 'Turn' 'Prompt'
+    printf -- '-  %*s  %s\n' "$index_width" "$turn_separator" '------'
+    if (( show_start_elision == 1 )); then
+      printf '   %*s  %s\n' "$index_width" '...' '...'
     fi
     for record in "$@"; do
       IFS=$'\t' read -r index _line label <<<"$record"
@@ -197,10 +239,10 @@ turn_nav_render_turn_list() {
         marker=">"
       fi
       display_label=$(turn_nav_label_for_display "$label")
-      printf '%s %s  %s\n' "$marker" "$index" "$display_label"
+      printf '%s  %*s  %s\n' "$marker" "$index_width" "$index" "$display_label"
     done
-    if (( end < total )); then
-      printf '  ...\n'
+    if (( show_end_elision == 1 )); then
+      printf '   %*s  %s\n' "$index_width" '...' '...'
     fi
   } >"$list_file"
 }
