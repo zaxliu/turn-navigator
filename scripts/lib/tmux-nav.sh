@@ -83,14 +83,29 @@ turn_nav_shell_quote() {
   printf "'"
 }
 
+turn_nav_list_position() {
+  case "${TURN_NAV_LIST_POSITION:-bottom}" in
+    right) printf 'right\n' ;;
+    bottom|*) printf 'bottom\n' ;;
+  esac
+}
+
 turn_nav_split_list_pane() {
   local pane_id=$1
   local list_file=$2
-  local width=${TURN_NAV_LIST_WIDTH:-32}
+  local list_height=${3:-}
   local quoted_file command
   quoted_file=$(turn_nav_shell_quote "$list_file")
   command="while :; do clear; cat $quoted_file 2>/dev/null; sleep 0.2; done"
-  "$(turn_nav_tmux_bin)" split-window -t "$pane_id" -h -l "$width" -d -P -F '#{pane_id}' "$command"
+  if [[ "$(turn_nav_list_position)" == "right" ]]; then
+    local width=${TURN_NAV_LIST_WIDTH:-32}
+    "$(turn_nav_tmux_bin)" split-window -t "$pane_id" -h -l "$width" -d -P -F '#{pane_id}' "$command"
+  else
+    if ! turn_nav_is_nonnegative_integer "$list_height" || (( list_height < 1 )); then
+      list_height=${TURN_NAV_LIST_MIN_HEIGHT:-5}
+    fi
+    "$(turn_nav_tmux_bin)" split-window -t "$pane_id" -v -l "$list_height" -d -P -F '#{pane_id}' "$command"
+  fi
 }
 
 turn_nav_kill_pane() {

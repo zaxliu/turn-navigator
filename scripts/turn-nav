@@ -62,7 +62,11 @@ turn_nav_close_list_pane() {
 
 turn_nav_label_for_display() {
   local label=$1
-  local max_width=${TURN_NAV_LABEL_WIDTH:-60}
+  local default_width=100
+  if [[ "$(turn_nav_list_position)" == "right" ]]; then
+    default_width=60
+  fi
+  local max_width=${TURN_NAV_LABEL_WIDTH:-$default_width}
   if ((${#label} > max_width)); then
     printf '%s...\n' "${label:0:max_width}"
   else
@@ -70,11 +74,101 @@ turn_nav_label_for_display() {
   fi
 }
 
+turn_nav_list_min_height() {
+  local min_height=${TURN_NAV_LIST_MIN_HEIGHT:-5}
+  if turn_nav_is_nonnegative_integer "$min_height" && (( min_height > 0 )); then
+    printf '%s\n' "$min_height"
+  else
+    printf '5\n'
+  fi
+}
+
+turn_nav_list_max_height_for_pane() {
+  local pane_id=$1
+  local min_height pane_height percent max_height
+  min_height=$(turn_nav_list_min_height)
+  pane_height=$(turn_nav_pane_height "$pane_id" 2>/dev/null || true)
+  percent=${TURN_NAV_LIST_MAX_HEIGHT_PERCENT:-30}
+  if ! turn_nav_is_nonnegative_integer "$pane_height" || (( pane_height < 2 )); then
+    printf '%s\n' "$min_height"
+    return 0
+  fi
+  if ! turn_nav_is_nonnegative_integer "$percent" || (( percent < 1 )); then
+    percent=30
+  fi
+  max_height=$((pane_height * percent / 100))
+  (( max_height < min_height )) && max_height=$min_height
+  if (( max_height >= pane_height )); then
+    max_height=$((pane_height - 1))
+  fi
+  (( max_height < 1 )) && max_height=1
+  printf '%s\n' "$max_height"
+}
+
+turn_nav_list_height_for_total() {
+  local pane_id=$1
+  local total=$2
+  local min_height max_height full_height height
+  min_height=$(turn_nav_list_min_height)
+  if [[ "$(turn_nav_list_position)" == "right" ]]; then
+    printf '\n'
+    return 0
+  fi
+  max_height=$(turn_nav_list_max_height_for_pane "$pane_id")
+  full_height=$((total + 2))
+  height=$full_height
+  (( height < min_height )) && height=$min_height
+  (( height > max_height )) && height=$max_height
+  printf '%s\n' "$height"
+}
+
+turn_nav_turn_list_window() {
+  local current=$1
+  local total=$2
+  local target_height=$3
+  local fallback_max_rows=$4
+  local start=1
+  local end=$total
+  if turn_nav_is_nonnegative_integer "$target_height" && (( target_height > 2 )); then
+    local rows_available slots extra
+    rows_available=$((target_height - 2))
+    if (( total > rows_available )); then
+      for ((slots = rows_available; slots > 0; slots--)); do
+        start=$((current - (slots / 2)))
+        (( start < 1 )) && start=1
+        end=$((start + slots - 1))
+        if (( end > total )); then
+          end=$total
+          start=$((end - slots + 1))
+          (( start < 1 )) && start=1
+        fi
+        extra=0
+        (( start > 1 )) && extra=$((extra + 1))
+        (( end < total )) && extra=$((extra + 1))
+        if (( slots + extra <= rows_available )); then
+          break
+        fi
+      done
+    fi
+  elif turn_nav_is_nonnegative_integer "$fallback_max_rows" && (( total > fallback_max_rows )); then
+    start=$((current - (fallback_max_rows / 2)))
+    (( start < 1 )) && start=1
+    end=$((start + fallback_max_rows - 1))
+    if (( end > total )); then
+      end=$total
+      start=$((end - fallback_max_rows + 1))
+      (( start < 1 )) && start=1
+    fi
+  fi
+  printf '%s\t%s\n' "$start" "$end"
+}
+
 turn_nav_render_turn_list() {
   local pane_id=$1
   local current=$2
   local total=$3
-  shift 3
+  local target_height=${4:-}
+  shift 4
   local list_file
   list_file=$(turn_nav_read_state "$pane_id" list_file "")
   if [[ -z "$list_file" ]]; then
@@ -83,18 +177,8 @@ turn_nav_render_turn_list() {
   fi
 
   local max_rows=${TURN_NAV_LIST_MAX_ROWS:-30}
-  local start=1
-  local end=$total
-  if turn_nav_is_nonnegative_integer "$max_rows" && (( total > max_rows )); then
-    start=$((current - (max_rows / 2)))
-    (( start < 1 )) && start=1
-    end=$((start + max_rows - 1))
-    if (( end > total )); then
-      end=$total
-      start=$((end - max_rows + 1))
-      (( start < 1 )) && start=1
-    fi
-  fi
+  local start end
+  IFS=$'\t' read -r start end < <(turn_nav_turn_list_window "$current" "$total" "$target_height" "$max_rows")
 
   local record index _line label marker display_label
   {
@@ -123,6 +207,7 @@ turn_nav_render_turn_list() {
 
 turn_nav_ensure_list_pane() {
   local pane_id=$1
+  local list_height=${2:-}
   local list_file
   list_file=$(turn_nav_read_state "$pane_id" list_file "")
   if [[ -z "$list_file" ]]; then
@@ -137,7 +222,7 @@ turn_nav_ensure_list_pane() {
   fi
 
   turn_nav_delete_state "$pane_id" list_pane_id
-  list_pane=$(turn_nav_split_list_pane "$pane_id" "$list_file") || return 0
+  list_pane=$(turn_nav_split_list_pane "$pane_id" "$list_file" "$list_height") || return 0
   turn_nav_write_state "$pane_id" list_pane_id "$list_pane"
   turn_nav_select_pane "$pane_id" || true
 }
@@ -286,10 +371,12 @@ navigate_cmd() {
 
   local status
   status=$(turn_nav_status_text "$new" "$total")
+  local list_height
+  list_height=$(turn_nav_list_height_for_total "$pane_id" "$total")
   turn_nav_write_state "$pane_id" current_turn "$new"
   turn_nav_write_state "$pane_id" last_status "$status"
   turn_nav_write_state "$pane_id" visible_turn_count "$total"
-  turn_nav_render_turn_list "$pane_id" "$new" "$total" "${records[@]}"
+  turn_nav_render_turn_list "$pane_id" "$new" "$total" "$list_height" "${records[@]}"
 
   local was_in_copy=$in_copy
   if [[ "$(turn_nav_pane_in_copy_mode "$pane_id")" == "0" ]]; then
@@ -297,7 +384,7 @@ navigate_cmd() {
   fi
 
   # Entering copy-mode can expose a different wrapped-line map from the live
-  # pane. Re-capture before opening the side pane so the jump uses copy-mode
+  # pane. Re-capture before opening the list pane so the jump uses copy-mode
   # coordinates without letting split-induced reflow truncate the turn list.
   content=$(turn_nav_capture_pane "$pane_id")
   local jump_records=("${records[@]}")
@@ -310,7 +397,7 @@ navigate_cmd() {
   fi
 
   if [[ "$new" == "$current" && "$was_in_copy" != "1" ]]; then
-    turn_nav_ensure_list_pane "$pane_id"
+    turn_nav_ensure_list_pane "$pane_id" "$list_height"
     turn_nav_show_message "$pane_id" "$status"
     exit 0
   fi
@@ -340,7 +427,7 @@ navigate_cmd() {
     prefer_verified_goto=1
   fi
   turn_nav_jump_to_line "$pane_id" "$goto_line" "$top_cursor_down_count" "$search_text" "$prefer_verified_goto"
-  turn_nav_ensure_list_pane "$pane_id"
+  turn_nav_ensure_list_pane "$pane_id" "$list_height"
   turn_nav_show_message "$pane_id" "$status"
 }
 

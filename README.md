@@ -21,7 +21,7 @@ Works with both **Claude Code** (`❯`) and **Codex CLI** (`›`).
 | q / Escape | Exit browse mode |
 
 A turn counter (for example `Turn 3/12`) appears in the status bar while browsing.
-The first navigation keypress also opens a temporary right-side turn list pane. The list shows the completed turns in the current session as `number + prompt first line`, and the highlighted row follows `Shift+Up/Down` and `Alt+Up/Down` as the main pane jumps.
+The first navigation keypress also opens a temporary bottom turn list pane. The list shows the completed turns in the current session as `number + prompt first line`, and the highlighted row follows `Shift+Up/Down` and `Alt+Up/Down` as the main pane jumps.
 
 ## Installation
 
@@ -105,15 +105,28 @@ Default pattern matches both Claude Code and Codex CLI prompts: `^(❯|›)`
 
 Codex CLI prompt lines are supported by the default pattern. Codex-only workflows can rely on lazy activation from the first navigation keypress, or use a wrapper that calls `scripts/turn-nav activate` / `scripts/turn-nav deactivate`.
 
+The turn list opens at the bottom by default so the source pane keeps its original width while browsing. To restore the older right-side list pane:
+
+```bash
+export TURN_NAV_LIST_POSITION=right
+```
+
+Bottom list height is adaptive. By default it uses enough rows for the visible list, capped at 30% of the source pane height with a minimum of 5 rows. You can tune those limits:
+
+```bash
+export TURN_NAV_LIST_MAX_HEIGHT_PERCENT=30
+export TURN_NAV_LIST_MIN_HEIGHT=5
+```
+
 ## How it works
 
 1. **SessionStart** calls `scripts/setup-nav.sh`, which installs the tmux bindings and marks the current pane active
 2. tmux bindings stay static after install and call `scripts/turn-nav navigate`
 3. If pane state is missing or activation hid all existing scrollback, the first navigation keypress initializes state for that pane
 4. **SessionEnd** calls `scripts/turn-nav deactivate` to clear only the current pane state
-5. **Shift+Up/Down** enters tmux copy-mode, jumps between completed user prompt lines, and keeps the temporary right-side turn list pane in sync
+5. **Shift+Up/Down** enters tmux copy-mode, jumps between completed user prompt lines, and keeps the temporary bottom turn list pane in sync
 
-The list is implemented as a temporary tmux pane instead of a popup because tmux popups pause updates to the underlying pane while they are open. A side pane lets the main pane and the turn list update together. `Ctrl+G`, `q`, `Escape`, and `deactivate` close the list pane and clear pane-local list state.
+The list is implemented as a temporary tmux pane instead of a popup because tmux popups pause updates to the underlying pane while they are open. A bottom pane keeps the source pane width stable while the main pane and the turn list update together. `Ctrl+G`, `q`, `Escape`, and `deactivate` close the list pane and clear pane-local list state.
 
 Pane-local state is stored in `/tmp/turn-nav/<tmux_session_id>/<pane_id>/` and cleaned up by `scripts/turn-nav deactivate`, which Claude Code runs from the `SessionEnd` hook.
 

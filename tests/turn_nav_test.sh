@@ -323,8 +323,40 @@ test_navigation_opens_and_renders_turn_list_pane() {
   assert_contains "$list_content" "Turn 3/3" "list should show current progress"
   assert_contains "$list_content" "  1  one" "list should show older turns"
   assert_contains "$list_content" "> 3  three" "list should highlight the current turn"
-  assert_pane_actions "%1" "$source_actions" "split-window %2" "select-pane"
+  assert_pane_actions "%1" "$source_actions" "split-window -v -l 5 %2" "select-pane"
   assert_pane_actions "$list_pane" "$list_actions" "list-pane-command"
+}
+
+test_turn_list_pane_height_is_capped_to_thirty_percent_of_source_pane() {
+  setup_case
+  local content=$'❯ one\nanswer'
+  local i
+  for ((i = 2; i <= 20; i++)); do
+    content+=$'\n'"❯ turn $i"$'\nanswer'
+  done
+  content+=$'\n❯ '
+  fake_tmux_write_pane "%1" "$content" 0
+  fake_tmux_set_pane_height "%1" 20
+
+  turn_nav_cmd navigate up 1 %1
+
+  local source_actions list_content
+  source_actions=$(fake_tmux_read_pane_actions "%1")
+  list_content=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/turn-list")
+  assert_pane_actions "%1" "$source_actions" "split-window -v -l 6 %2"
+  assert_contains "$list_content" "Turn 20/20" "list should still show current progress when height is capped"
+  assert_contains "$list_content" "  ..." "height-capped list should show elision"
+}
+
+test_turn_list_pane_can_use_legacy_right_position() {
+  setup_case
+  fake_tmux_write_pane "%1" $'❯ one\nanswer\n❯ two\nanswer\n❯ three\nanswer\n❯ ' 0
+
+  TURN_NAV_LIST_POSITION=right turn_nav_cmd navigate up 1 %1
+
+  local source_actions
+  source_actions=$(fake_tmux_read_pane_actions "%1")
+  assert_pane_actions "%1" "$source_actions" "split-window -h -l 32 %2"
 }
 
 test_navigation_updates_existing_turn_list_pane_highlight() {
@@ -343,8 +375,8 @@ test_navigation_updates_existing_turn_list_pane_highlight() {
   assert_eq "%3" "$list_pane" "second navigation should reopen the list pane after restoring full-width jump coordinates"
   assert_contains "$list_content" "Turn 2/3" "list should update current progress"
   assert_contains "$list_content" "> 2  two" "list should move the highlighted turn"
-  assert_action_count "1" "$source_actions" "split-window %2"
-  assert_action_count "1" "$source_actions" "split-window %3"
+  assert_action_count "1" "$source_actions" "split-window -v -l 5 %2"
+  assert_action_count "1" "$source_actions" "split-window -v -l 5 %3"
 }
 
 test_bottom_closes_turn_list_pane() {
@@ -387,7 +419,7 @@ test_stale_turn_list_pane_is_replaced() {
   list_pane=$(cat "$TURN_NAV_STATE_ROOT/session-1/%1/list_pane_id")
   source_actions=$(fake_tmux_read_pane_actions "%1")
   assert_eq "%3" "$list_pane" "navigation should replace a stale list pane id"
-  assert_pane_actions "%1" "$source_actions" "split-window %2" "split-window %3"
+  assert_pane_actions "%1" "$source_actions" "split-window -v -l 5 %2" "split-window -v -l 5 %3"
 }
 
 test_navigation_does_not_search_backward_from_exact_prompt_line() {
@@ -446,7 +478,7 @@ test_navigation_preserves_turn_count_when_list_split_truncates_capture() {
   assert_eq "3" "$current" "navigation should keep the selected turn from the pre-split capture"
   assert_eq "⇅ Turn 3/3" "$status" "status should keep the pre-split turn count"
   assert_contains "$list_content" "Turn 3/3" "list should keep the pre-split turn count"
-  assert_action_after "$actions" "send-keys select-line" "split-window %2"
+  assert_action_after "$actions" "send-keys select-line" "split-window -v -l 5 %2"
 }
 
 test_navigation_does_not_add_older_history_revealed_while_browsing() {
@@ -468,7 +500,7 @@ test_navigation_does_not_add_older_history_revealed_while_browsing() {
   assert_eq "⇅ Turn 2/2" "$status" "status should keep the original visible turn count"
   assert_contains "$list_content" "Turn 2/2" "list should keep the original visible turn count"
   assert_file_not_contains "$TURN_NAV_STATE_ROOT/session-1/%1/turn-list" "older revealed"
-  assert_action_count "1" "$actions" "split-window %2"
+  assert_action_count "1" "$actions" "split-window -v -l 5 %2"
 }
 
 test_navigation_searches_prompt_when_already_browsing() {
@@ -850,7 +882,9 @@ test_readme_documents_static_tmux_installation() {
   assert_file_contains "$ROOT/README.md" 'For non-Claude workflows, the static tmux bindings can lazily activate a pane'
   # shellcheck disable=SC2016
   assert_file_contains "$ROOT/README.md" 'cleaned up by `scripts/turn-nav deactivate`'
-  assert_file_contains "$ROOT/README.md" 'temporary right-side turn list pane'
+  assert_file_contains "$ROOT/README.md" 'temporary bottom turn list pane'
+  assert_file_contains "$ROOT/README.md" 'TURN_NAV_LIST_POSITION=right'
+  assert_file_contains "$ROOT/README.md" 'TURN_NAV_LIST_MAX_HEIGHT_PERCENT'
   assert_file_contains "$ROOT/README.md" 'tmux popups pause updates to the underlying pane'
   assert_file_not_contains "$ROOT/README.md" 'Turn Navigator hooks installed in Claude Code'
   assert_file_not_contains "$ROOT/README.md" 'cleaned up when the pane session ends'
@@ -859,7 +893,7 @@ test_readme_documents_static_tmux_installation() {
 test_help_skill_mentions_tmux_binding_requirement() {
   assert_file_contains "$ROOT/skills/help/SKILL.md" 'Claude Code installs tmux bindings automatically on SessionStart'
   assert_file_contains "$ROOT/skills/help/SKILL.md" 'Warning: tmux not detected or bindings not installed.'
-  assert_file_contains "$ROOT/skills/help/SKILL.md" 'opens a temporary right-side turn list pane'
+  assert_file_contains "$ROOT/skills/help/SKILL.md" 'opens a temporary bottom turn list pane'
 }
 
 run_all() {
