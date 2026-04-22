@@ -67,7 +67,16 @@ turn_nav_label_for_display() {
     default_width=60
   fi
   local max_width=${TURN_NAV_LABEL_WIDTH:-$default_width}
-  if ((${#label} > max_width)); then
+  local char_count truncated
+  char_count=$(printf '%s' "$label" | perl -MEncode=decode,FB_CROAK -0777 -ne '$_ = decode("UTF-8", $_, FB_CROAK); print length($_)' 2>/dev/null || true)
+  if turn_nav_is_nonnegative_integer "$char_count" && (( char_count > max_width )); then
+    truncated=$(printf '%s' "$label" | MAX="$max_width" perl -MEncode=decode,encode,FB_CROAK -0777 -ne '$_ = decode("UTF-8", $_, FB_CROAK); print encode("UTF-8", substr($_, 0, $ENV{MAX}))' 2>/dev/null || true)
+    if [[ -n "$truncated" ]]; then
+      printf '%s...\n' "$truncated"
+    else
+      printf '%s\n' "$label"
+    fi
+  elif ! turn_nav_is_nonnegative_integer "$char_count" && ((${#label} > max_width)); then
     printf '%s...\n' "${label:0:max_width}"
   else
     printf '%s\n' "$label"
@@ -223,7 +232,7 @@ turn_nav_render_turn_list() {
   local record index _line label marker display_label
   {
     printf 'Turn %s/%s\n' "$current" "$total"
-    printf '%s\n' 'Keys: Alt-Up/Down=1  Alt-Shift-Up/Down=5  q/Esc=exit'
+    printf '%s\n' 'Keys: Alt-Up/Down=1  Alt-Shift-Up/Down=5  Ctrl+G/q/Esc=exit'
     printf '   %*s  %s\n' "$index_width" 'Turn' 'Prompt'
     printf -- '-  %*s  %s\n' "$index_width" "$turn_separator" '------'
     if (( show_start_elision == 1 )); then

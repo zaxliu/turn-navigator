@@ -31,6 +31,14 @@ assert_file_not_contains() {
   fi
 }
 
+assert_file_valid_utf8() {
+  local path=$1
+  if ! iconv -f UTF-8 -t UTF-8 "$path" >/dev/null; then
+    printf 'ASSERTION FAILED: expected valid UTF-8 in %s\n' "$path" >&2
+    exit 1
+  fi
+}
+
 assert_contains() {
   local haystack=$1
   local needle=$2
@@ -91,6 +99,33 @@ tmux_socket_wrapper() {
 exec tmux -L "$TURN_NAV_TMUX_SOCKET" "$@"
 EOF
   chmod +x "$wrapper"
+}
+
+test_turn_list_pane_command_keeps_header_visible_when_file_fills_pane() {
+  TEST_TMPDIR=$(mktemp -d)
+  export TURN_NAV_TMUX_SOCKET="turn-nav-scroll-test-$$-$RANDOM"
+  tmux -L "$TURN_NAV_TMUX_SOCKET" -f /dev/null new-session -d -x 80 -y 20 -s turn-nav-scroll-test 'sleep 1000' >/dev/null
+  tmux_socket_wrapper "$TEST_TMPDIR/tmux"
+
+  local list_file list_pane captured
+  list_file="$TEST_TMPDIR/turn-list"
+  cat >"$list_file" <<'EOF'
+Turn 3/3
+Keys: Alt-Up/Down=1
+   Turn  Prompt
+-  ----  ------
+>     3  three
+EOF
+
+  TMUX_BIN="$TEST_TMPDIR/tmux" source "$ROOT/scripts/lib/state.sh"
+  TMUX_BIN="$TEST_TMPDIR/tmux" source "$ROOT/scripts/lib/tmux-nav.sh"
+  TMUX_BIN="$TEST_TMPDIR/tmux" list_pane=$(turn_nav_split_list_pane "%0" "$list_file" 5)
+  sleep 0.4
+  captured=$(tmux -L "$TURN_NAV_TMUX_SOCKET" capture-pane -t "$list_pane" -p -S 0)
+  cleanup_tmux_config_case
+  rm -rf "$TEST_TMPDIR"
+
+  assert_contains "$captured" "Turn 3/3" "list pane command should not scroll the header away when the file fills the pane"
 }
 
 assert_pane_actions() {
@@ -323,7 +358,7 @@ test_navigation_opens_and_renders_turn_list_pane() {
 
   assert_eq "%2" "$list_pane" "navigation should record the created list pane id"
   assert_contains "$list_content" "Turn 3/3" "list should show current progress"
-  assert_contains "$list_content" "Keys: Alt-Up/Down=1  Alt-Shift-Up/Down=5  q/Esc=exit" "list should document navigation shortcuts"
+  assert_contains "$list_content" "Keys: Alt-Up/Down=1  Alt-Shift-Up/Down=5  Ctrl+G/q/Esc=exit" "list should document navigation shortcuts"
   assert_contains "$list_content" "   Turn  Prompt" "list should show aligned column labels"
   assert_contains "$list_content" "-  ----  ------" "list should show a column separator"
   assert_contains "$list_content" "      1  one" "list should show older turns in an aligned turn column"
@@ -350,6 +385,20 @@ test_turn_list_pane_aligns_two_digit_turn_numbers() {
   assert_contains "$list_content" "      9  turn 9" "single digit turns should be padded inside the Turn column"
   assert_contains "$list_content" "     10  turn 10" "two digit turns should align inside the same Turn column"
   assert_contains "$list_content" ">    12  turn 12" "current two digit turn should keep the marker in its own column"
+}
+
+test_turn_list_pane_truncates_utf8_labels_without_replacement_characters() {
+  setup_case
+  local prompt='这么麻烦就先不用支持鼠标键盘了，就美化一下样式吧。另外也把快捷键写一下。'
+  fake_tmux_write_pane "%1" "❯ ${prompt}"$'\nanswer\n❯ next\nanswer\n❯ ' 0
+  fake_tmux_set_pane_height "%1" 24
+
+  TURN_NAV_LABEL_WIDTH=40 turn_nav_cmd navigate up 2 %1
+
+  local list_file
+  list_file="$TURN_NAV_STATE_ROOT/session-1/%1/turn-list"
+  assert_file_contains "$list_file" "这么麻烦就先不用支持"
+  assert_file_valid_utf8 "$list_file"
 }
 
 test_turn_list_pane_command_does_not_clear_on_poll_interval() {
@@ -1000,6 +1049,8 @@ run_all() {
   test_first_navigation_searches_prompt_when_cursor_is_above_pane_bottom
   test_navigation_opens_and_renders_turn_list_pane
   test_turn_list_pane_aligns_two_digit_turn_numbers
+  test_turn_list_pane_truncates_utf8_labels_without_replacement_characters
+  test_turn_list_pane_command_keeps_header_visible_when_file_fills_pane
   test_turn_list_pane_min_height_does_not_overflow_header_budget
   test_navigation_updates_existing_turn_list_pane_highlight
   test_bottom_closes_turn_list_pane

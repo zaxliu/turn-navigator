@@ -96,7 +96,7 @@ turn_nav_split_list_pane() {
   local list_height=${3:-}
   local quoted_file command
   quoted_file=$(turn_nav_shell_quote "$list_file")
-  command="last=; while :; do current=\$(cksum $quoted_file 2>/dev/null || true); if [ \"\$current\" != \"\$last\" ]; then printf '\\033[H\\033[J'; cat $quoted_file 2>/dev/null; last=\"\$current\"; fi; sleep 0.2; done"
+  command="last=; while :; do current=\$(cksum $quoted_file 2>/dev/null || true); if [ \"\$current\" != \"\$last\" ]; then printf '\\033[H\\033[J'; awk 'NR == 1 { printf \"%s\", \$0; next } { printf \"\\n%s\", \$0 }' $quoted_file 2>/dev/null; last=\"\$current\"; fi; sleep 0.2; done"
   if [[ "$(turn_nav_list_position)" == "right" ]]; then
     local width=${TURN_NAV_LIST_WIDTH:-32}
     "$(turn_nav_tmux_bin)" split-window -t "$pane_id" -h -l "$width" -d -P -F '#{pane_id}' "$command"
